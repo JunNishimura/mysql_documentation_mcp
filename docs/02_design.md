@@ -80,7 +80,8 @@ read_documentation(
 - ページを取得（キャッシュ優先）→ 本文抽出 → Markdown 変換 → `start_index` から `max_length` 文字を返す。
 - 続きがある場合は末尾に `<e>Content truncated. Call read_documentation with start_index=N to get more content.</e>` を付与（AWS 版と同形式）。
 - 先頭に **ページ内目次（見出し一覧とアンカー）** を短く付け、次に `read_sections` を使えるようにする。
-- 20 行を超える表は先頭数行＋`search_table` 利用のヒントに省略（AWS 版と同様）。
+- 大きな表の省略（AWS 版は 20 行超を省略して `search_table` へ誘導）は、`search_table`（M4）を実装するまで行わない。
+  それまでは表も省略せず返し、ページネーションで読む（省略すると行を読む手段がなくなるため）。
 
 ### 3.3 `read_sections`（MVP）
 
@@ -92,7 +93,9 @@ read_sections(
 ```
 
 - MySQL の巨大ページ（例: `server-system-variables.html` は数十万文字）で必須。
-- マッチング順: アンカー ID 完全一致 → 見出し完全一致（大小無視）→ 部分一致。見つからない場合は候補見出しを返す。
+- マッチング順: 見出しアンカー → 見出しテキスト完全一致（大小無視・節番号の有無は問わない）→ 見出しの部分一致（候補が 1 つの場合のみ）→ 本文中のアンカー（リファレンス項目）。
+  アンカーは大小文字と `_`/`-` の違いを無視して照合する（関数のアンカーは `function_json-extract` のようにハイフン区切りだが、エージェントは `function_json_extract` と推測しがちなため）。
+  見つからない場合は候補見出しと、名前が近いリファレンス項目のアンカーを返す。
 - 範囲は「該当見出し（または該当アンカーを持つ要素）から、同レベル以上の次見出しまで」。
   システム変数一覧のような `<ul><li><a id="sysvar_...">` 構造は「次の同種アンカーまで」を 1 セクションとして扱う。
 
@@ -248,14 +251,22 @@ CREATE VIRTUAL TABLE chunks USING fts5(                           -- 見出し�
   最終 URL のバージョンが要求と異なる場合は、内容を返さずに「このバージョンのマニュアルは公開されていない」旨のエラーにする。
   取り違えたバージョンの内容を返すと誤回答に直結するため。
 - **許可 URL**: `^https://dev\.mysql\.com/doc/(refman|relnotes/mysql)/[^/]+/en/` と `^https://downloads\.mysql\.com/docs/` のみ（対象外の doc_set・英語以外の言語は拒否し、その旨をエラーで返す）。リダイレクト先も response hook で再検証（AWS 版 `enforce_redirect_allowlist` と同方式）。
-- User-Agent: `mysql-documentation-mcp/<version> (+<repo URL>)`。`MYSQL_DOC_USER_AGENT` で上書き可（社内プロキシ対策）。
+- User-Agent: `Python-urllib/<Python の版> mysql-documentation-mcp/<version> (+<repo URL>)`。`MYSQL_DOC_USER_AGENT` で上書き可。
+  M1 で確認したところ、dev.mysql.com と downloads.mysql.com は多くの User-Agent に 403（"Technical Difficulties" ページ）を返す。
+  httpx の既定値、独自の製品トークンのみのもの、`Mozilla/5.0 ...`（ブラウザ風）は拒否され、`Python-urllib/*`, `python-requests/*`, `curl/*`, `Wget/*` などの標準的なクライアントは受け付けられる。
+  そのため先頭に標準の `Python-urllib` トークンを置き（実際に Python の HTTP クライアントである）、続けて本サーバーの製品トークンとリポジトリ URL を付けて識別可能にしている。ブラウザは装わない。
+  403 を受けた場合のエラーメッセージでは `MYSQL_DOC_USER_AGENT` での回避を案内する。
 - プロキシ: httpx 標準の `HTTPS_PROXY` 等の環境変数に従う。
 - レート制限: ホスト毎トークンバケット（既定 2 req/s）。429/503 は指数バックオフで最大 3 回リトライ。
 
 ### 5.2 キャッシュ
 
-- 取得した HTML から変換済み Markdown＋メタデータ（URL・タイトル・取得日時・ETag/Last-Modified）を JSON で保存。
-- TTL 既定 7 日。期限切れは条件付き GET（`If-None-Match` / `If-Modified-Since`）で再検証。
+- 取得した **生の HTML（gzip）** とメタデータ（URL・リダイレクト後の URL・取得日時）を保存する。変換済み Markdown ではなく HTML を持つのは、
+  `read_documentation` と `read_sections` の両方で使え、変換処理を直したときに古い出力が残らないため。
+- TTL 既定 7 日。ドキュメントページは `ETag` / `Last-Modified` を返さない（`Cache-Control: no-cache` のみ。M1 で確認）ため、期限切れは単純に再取得する。
+  条件付き GET（`If-Modified-Since`）は `Last-Modified` を返す Info アーカイブ（§4.3）で使う。
+- 解析・変換済みのページはメモリ上に直近 8 ページ保持する（約 1 MB の `server-system-variables.html` は解析と変換に 2〜3 秒かかるため、ページ送りのたびにやり直さない）。
+- バージョンのすり替わり（§5.1）で拒否したページはキャッシュしない。
 - ネットワーク不通時は期限切れキャッシュでも返し、出力に「キャッシュ（取得日: …）」と明記する。
 - `MYSQL_DOC_OFFLINE=1` でネットワークアクセスを完全に禁止（キャッシュ/インデックスのみで応答）。
 
@@ -329,7 +340,7 @@ AWS 版にならい、FastMCP の `instructions` に以下を記載する:
 | `MYSQL_DOC_INDEX_TTL_DAYS` | インデックスの更新確認までの日数 | `7` |
 | `MYSQL_DOC_CACHE_TTL_DAYS` | ページキャッシュの有効日数 | `7` |
 | `MYSQL_DOC_OFFLINE` | `1` でネットワークアクセス禁止 | `0` |
-| `MYSQL_DOC_USER_AGENT` | HTTP User-Agent の上書き | パッケージ名/バージョン |
+| `MYSQL_DOC_USER_AGENT` | HTTP User-Agent の上書き | `Python-urllib/<ver> mysql-documentation-mcp/<ver> (+<repo>)`（§5.1） |
 | `FASTMCP_LOG_LEVEL` | ログレベル | `WARNING` |
 
 クライアント設定例:
@@ -373,16 +384,16 @@ mysql_documentation_mcp/
 ├── docs/                       # 本設計ドキュメント
 ├── src/mysql_documentation_mcp/
 │   ├── __init__.py
-│   ├── server.py               # FastMCP 定義・instructions・ツール登録・main()
+│   ├── server.py               # MCPServer 定義・instructions・ツール登録・main()
 │   ├── cli.py                  # `index` などのサブコマンド
 │   ├── config.py               # 環境変数
-│   ├── models.py               # pydantic モデル (SearchResult 等)
-│   ├── tools/
+│   ├── tools/                  # 各ツールの実装と入出力モデル（pydantic）
 │   │   ├── search.py
 │   │   ├── read.py             # read_documentation / read_sections / search_table
 │   │   ├── relnotes.py         # get_release_notes / get_upgrade_guide
 │   │   └── versions.py         # list_versions
 │   └── core/
+│       ├── urls.py             # URL の許可リスト・正規化・バージョンすり替わり検知
 │       ├── fetcher.py
 │       ├── cache.py
 │       ├── converter.py

@@ -1,0 +1,58 @@
+[project]
+name = "mysql-documentation-mcp"
+version = "0.1.0"
+description = "MCP server that lets AI agents search and read the official MySQL documentation"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "JunNishimura" }]
+requires-python = ">=3.10"
+keywords = ["mcp", "mysql", "documentation"]
+dependencies = [
+    "mcp>=2.2,<3",
+    "httpx>=0.28",
+    "beautifulsoup4>=4.13",
+    "soupsieve>=2.5",
+    "lxml>=5",
+    "markdownify>=1.1",
+    "pydantic>=2.10",
+    "platformdirs>=4",
+]
+
+[project.urls]
+Repository = "https://github.com/JunNishimura/mysql_documentation_mcp"
+
+[project.scripts]
+mysql-documentation-mcp = "mysql_documentation_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=1.0",
+    "respx>=0.22",
+    "ruff>=0.15",
+    "pyright>=1.1.400",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mysql_documentation_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.10"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["live: hits dev.mysql.com (run with --run-live)"]
