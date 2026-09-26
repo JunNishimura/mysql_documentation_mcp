@@ -44,6 +44,10 @@ def _env_float(name: str, default: float) -> float:
 class Settings:
     cache_dir: Path
     cache_ttl_days: float = 7.0
+    # "lts", "latest" or a version such as "8.4"; used when a tool gets no version.
+    default_version: str = "lts"
+    index_ttl_days: float = 7.0
+    preload_versions: tuple[str, ...] = ()
     offline: bool = False
     user_agent: str = DEFAULT_USER_AGENT
     # Minimum interval between requests to the same host (2 req/s by default).
@@ -58,6 +62,13 @@ class Settings:
         return cls(
             cache_dir=Path(cache_dir).expanduser(),
             cache_ttl_days=_env_float("MYSQL_DOC_CACHE_TTL_DAYS", 7.0),
+            default_version=(os.environ.get("MYSQL_DOC_DEFAULT_VERSION") or "lts").strip(),
+            index_ttl_days=_env_float("MYSQL_DOC_INDEX_TTL_DAYS", 7.0),
+            preload_versions=tuple(
+                v.strip()
+                for v in os.environ.get("MYSQL_DOC_PRELOAD_VERSIONS", "").split(",")
+                if v.strip()
+            ),
             offline=_env_bool("MYSQL_DOC_OFFLINE"),
             user_agent=os.environ.get("MYSQL_DOC_USER_AGENT") or DEFAULT_USER_AGENT,
         )

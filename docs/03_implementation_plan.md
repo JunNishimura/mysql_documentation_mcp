@@ -32,13 +32,15 @@ M1 で分かったこと（02_design.md に反映済み）:
 - ドキュメントページは ETag / Last-Modified を返さない → ページキャッシュは TTL で再取得（§5.2）
 - MCP Python SDK 2.x では `ToolError` 以外の例外はクライアントに「Error executing tool」としか伝わらない → 想定内のエラーは `ToolError` に変換して理由を返す
 
-### M2: 検索（MVP-2）
+### M2: 検索（MVP-2） ✅ 完了
 
-- [ ] `core/versions.py` とツール `list_versions`
-- [ ] `core/indexer.py`（アーカイブ取得 or クロール → FTS5）
-- [ ] CLI `mysql-documentation-mcp index`
-- [ ] ツール: `search_documentation`
-- [ ] 検索品質の評価セット（§3）で確認
+- [x] `core/versions.py` とツール `list_versions`
+- [x] `core/info.py`（Info 形式の解析）と `core/indexer.py`（Info アーカイブ → FTS5）。
+  クロールによる構築は、公開中の全バージョン（8.0 / 8.4 / 9.7 / 26.7）に Info アーカイブがあるため見送った
+- [x] CLI `mysql-documentation-mcp index [VERSION ...|all] [--force]`
+- [x] ツール: `search_documentation`
+- [x] 検索品質の評価セット（§3）で確認: **Recall@3 = 29/30 (0.97)**（8.4、`tests/live/test_search_quality.py`）。
+  唯一の外れは "replication GTID"（概要ページ replication-gtids ではなく、その下位ページが上位に来る）
 
 ### M3: リリースノート（MVP-3）
 
@@ -68,7 +70,8 @@ M1 で分かったこと（02_design.md に反映済み）:
 
 ## 3. 評価（検索・回答品質）
 
-代表的な質問と「期待する出典ページ」の組を 30 件程度用意し、検索の上位 3 件に含まれる割合（Recall@3）を計測する。例:
+代表的な質問と「期待する出典ページ」の組を 30 件用意し、検索の上位 3 件に含まれる割合（Recall@3）を計測する
+（`tests/live/test_search_quality.py`。0.8 未満で失敗）。例:
 
 | 質問 | 期待する出典 |
 |---|---|

@@ -23,7 +23,7 @@ dependencies = [
 Repository = "https://github.com/JunNishimura/mysql_documentation_mcp"
 
 [project.scripts]
-mysql-documentation-mcp = "mysql_documentation_mcp.server:main"
+mysql-documentation-mcp = "mysql_documentation_mcp.cli:main"
 
 [dependency-groups]
 dev = [
@@ -55,4 +55,5 @@ pythonVersion = "3.10"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = ["live: hits dev.mysql.com (run with --run-live)"]

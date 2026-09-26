@@ -9,14 +9,13 @@ from mcp import Client
 
 from mysql_documentation_mcp.core.cache import CachedPage, PageCache
 from mysql_documentation_mcp.server import create_server
-from mysql_documentation_mcp.tools.read import DocumentService
 
 URL = "https://dev.mysql.com/doc/refman/8.4/en/widget-statement.html"
 
 
 @pytest.fixture
 def client(settings):
-    return Client(create_server(DocumentService(settings)))
+    return Client(create_server(settings))
 
 
 def text(result):
@@ -26,7 +25,12 @@ def text(result):
 async def test_lists_read_only_tools(client):
     async with client:
         tools = {t.name: t for t in (await client.list_tools()).tools}
-    assert set(tools) == {"read_documentation", "read_sections"}
+    assert set(tools) == {
+        "search_documentation",
+        "list_versions",
+        "read_documentation",
+        "read_sections",
+    }
     for tool in tools.values():
         assert tool.annotations is not None and tool.annotations.read_only_hint
 
@@ -96,7 +100,7 @@ async def test_stale_cache_is_used_when_the_site_is_unreachable(settings, refman
         CachedPage(url=URL, final_url=URL, html=refman_html, fetched_at=0.0)
     )
     respx.get(URL).mock(side_effect=httpx.ConnectError("down"))
-    async with Client(create_server(DocumentService(settings))) as client:
+    async with Client(create_server(settings)) as client:
         result = await client.call_tool("read_documentation", {"url": URL})
     assert not result.is_error
     assert "Note: Could not refresh this page" in text(result)
@@ -104,8 +108,7 @@ async def test_stale_cache_is_used_when_the_site_is_unreachable(settings, refman
 
 
 async def test_offline_without_cache_is_an_error(settings):
-    service = DocumentService(dataclasses.replace(settings, offline=True))
-    async with Client(create_server(service)) as client:
+    async with Client(create_server(dataclasses.replace(settings, offline=True))) as client:
         result = await client.call_tool("read_documentation", {"url": URL})
     assert result.is_error
     assert "Offline mode" in text(result)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -15,23 +16,33 @@ from pydantic import Field
 
 from mysql_documentation_mcp import __version__
 from mysql_documentation_mcp.config import Settings
+from mysql_documentation_mcp.core.fetcher import Fetcher
 from mysql_documentation_mcp.tools.read import DocumentationError, DocumentService, SectionsResult
+from mysql_documentation_mcp.tools.search import SearchResponse, SearchService, VersionsResponse
+
+logger = logging.getLogger(__name__)
 
 INSTRUCTIONS = """
 # MySQL Documentation MCP Server
 
-Tools to read the official MySQL documentation (dev.mysql.com): the English MySQL Reference
-Manual and the MySQL Server release notes.
+Tools to search and read the official MySQL documentation (dev.mysql.com): the English
+MySQL Reference Manual and the MySQL Server release notes.
 
 ## Best practices
 
 - Before answering questions about MySQL syntax, configuration, defaults or behavior, check
   the official documentation with these tools, and cite the documentation URL.
-- Documentation differs between versions. Use the manual for the user's MySQL version by
-  putting it in the URL: https://dev.mysql.com/doc/refman/{version}/en/{page}.html
-  (published manuals: 8.0, 8.4, 9.7, 26.7). If the version is unknown, ask or say which
-  version you assumed.
-- To compare versions, read the same page with a different {version} in the URL.
+- Documentation differs between versions. Pass the user's MySQL version to
+  search_documentation (e.g. "8.4"); without it the latest LTS manual is searched. If the
+  version is unknown, ask or say which version you assumed. list_versions shows the
+  published versions.
+- Search with English technical terms; identifiers (sql_mode, JSON_TABLE,
+  innodb_buffer_pool_size, --skip-grant-tables) work best. Translate other languages first.
+- Search results link to the matching sub-section or reference entry
+  (e.g. server-system-variables.html#sysvar_sql_mode). Read it with read_sections using the
+  anchor after "#", or read the whole page with read_documentation.
+- To compare versions, read the same page with a different {version} in the URL
+  (https://dev.mysql.com/doc/refman/{version}/en/{page}.html).
 - Large pages: the first read_documentation call lists the page's sections and reference
   entries. Use read_sections with a section title or anchor (for example
   "sysvar_sql_mode" on server-system-variables.html) instead of paging through everything.
@@ -46,7 +57,7 @@ _READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_wor
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
-def _log_level() -> Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+def log_level() -> Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
     level = os.environ.get("FASTMCP_LOG_LEVEL", "WARNING").upper()
     return cast(
         Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -54,23 +65,85 @@ def _log_level() -> Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
     )
 
 
-def create_server(service: DocumentService | None = None) -> MCPServer:
-    docs = service or DocumentService(Settings.from_env())
+def create_server(settings: Settings | None = None, *, fetcher: Fetcher | None = None) -> MCPServer:
+    settings = settings or Settings.from_env()
+    fetcher = fetcher or Fetcher(settings)
+    docs = DocumentService(settings, fetcher)
+    search = SearchService(settings, fetcher)
+
+    async def preload(version: str) -> None:
+        try:
+            await search.indexes.ensure(await search.resolve_version(version))
+        except DocumentationError as e:
+            logger.warning("Could not preload the index for %s: %s", version, e)
 
     @asynccontextmanager
     async def lifespan(_: MCPServer) -> AsyncIterator[None]:
+        tasks = [asyncio.create_task(preload(v)) for v in settings.preload_versions]
         try:
             yield
         finally:
-            await docs.aclose()
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await fetcher.aclose()
 
     mcp = MCPServer(
         "mysql-documentation-mcp",
         instructions=INSTRUCTIONS,
         version=__version__,
-        log_level=_log_level(),
+        log_level=log_level(),
         lifespan=lifespan,
     )
+
+    @mcp.tool(annotations=_READ_ONLY)
+    async def search_documentation(
+        query: Annotated[
+            str,
+            Field(
+                description='English search terms, e.g. "sql_mode default", '
+                '"window function frame", "ALGORITHM=INSTANT add column". Use double quotes '
+                "for an exact phrase.",
+                min_length=1,
+                max_length=500,
+            ),
+        ],
+        version: Annotated[
+            str | None,
+            Field(
+                description='MySQL version to search, e.g. "8.4", "8.4.6", "9.7", "lts" or '
+                '"latest". Omit to use the default (latest LTS).'
+            ),
+        ] = None,
+        limit: Annotated[int, Field(description="Maximum number of results", ge=1, le=50)] = 10,
+    ) -> SearchResponse:
+        """Search the MySQL Reference Manual for one version and return matching pages.
+
+        Each result has the page title and section number, its URL (with #anchor when a
+        sub-section or reference entry such as a system variable matched), the parent sections
+        and a snippet. Then read the result with read_sections (using the #anchor) or
+        read_documentation.
+
+        The first search of a version downloads the official manual archive (about 4 MB) and
+        builds a local index, which takes a few seconds.
+        """
+        try:
+            return await search.search(query, version, limit)
+        except DocumentationError as e:
+            raise ToolError(str(e)) from e
+
+    @mcp.tool(annotations=_READ_ONLY)
+    async def list_versions() -> VersionsResponse:
+        """List MySQL versions with published documentation.
+
+        For each version series: its release track (LTS / Innovation / ...), whether a
+        Reference Manual is published, the latest release with its date, and the manual and
+        release notes URLs. Also returns the default version used when a tool gets none.
+        """
+        try:
+            return await search.list_versions()
+        except DocumentationError as e:
+            raise ToolError(str(e)) from e
 
     @mcp.tool(annotations=_READ_ONLY)
     async def read_documentation(
@@ -152,8 +225,9 @@ def create_server(service: DocumentService | None = None) -> MCPServer:
 
 
 def main() -> None:
-    logging.basicConfig(level=_log_level())
-    create_server().run()
+    from mysql_documentation_mcp.cli import main as cli_main
+
+    cli_main()
 
 
 if __name__ == "__main__":
