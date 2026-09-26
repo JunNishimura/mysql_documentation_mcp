@@ -17,14 +17,20 @@
 | `robots.txt` / 利用条件 | `/doc/` は禁止されていない。マニュアルの Legal Notices で再配布は禁止、内容を改変しない形式変換は許可 | 02 §10 |
 | サイト内検索（案 A） | `/doc/search/?q=` は動作するが結果は最新版のみ → 採用しない | 02 §4.2 |
 
-### M1: 骨格と読み取り（MVP-1）
+### M1: 骨格と読み取り（MVP-1） ✅ 完了
 
-- [ ] `pyproject.toml`（uv, エントリポイント `mysql-documentation-mcp`）、ruff/pyright/pytest 設定、CI（GitHub Actions）
-- [ ] `core/fetcher.py`（許可リスト・リダイレクト検証・UA・リトライ）
-- [ ] `core/converter.py`（本文抽出・Markdown 変換・ページ内目次・セクション抽出）
-- [ ] `core/cache.py`
-- [ ] ツール: `read_documentation`, `read_sections`
-- [ ] MCP Inspector と Claude Code で動作確認
+- [x] `pyproject.toml`（uv, エントリポイント `mysql-documentation-mcp`）、ruff/pyright/pytest 設定、CI（GitHub Actions）
+- [x] `core/urls.py`（URL の許可リスト・正規化・バージョンすり替わり検知）
+- [x] `core/fetcher.py`（許可リスト・リダイレクト検証・UA・レート制限・リトライ）
+- [x] `core/converter.py`（本文抽出・Markdown 変換・ページ内目次・セクション抽出）
+- [x] `core/cache.py`
+- [x] ツール: `read_documentation`, `read_sections`
+- [x] MCP クライアント（SDK の `Client`、stdio サブプロセス起動を含む）で動作確認。実サイトでの確認は `pytest --run-live`
+
+M1 で分かったこと（02_design.md に反映済み）:
+- サイトは多くの User-Agent に 403 を返す → 既定 UA を変更（§5.1）
+- ドキュメントページは ETag / Last-Modified を返さない → ページキャッシュは TTL で再取得（§5.2）
+- MCP Python SDK 2.x では `ToolError` 以外の例外はクライアントに「Error executing tool」としか伝わらない → 想定内のエラーは `ToolError` に変換して理由を返す
 
 ### M2: 検索（MVP-2）
 
