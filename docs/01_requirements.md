@@ -59,11 +59,13 @@ MySQL 版として、**MySQL 公式ドキュメント（dev.mysql.com/doc）を 
 - MySQL サーバーへの接続・クエリ実行（本サーバーはドキュメント参照専用）
 - ドキュメント内容の翻訳・要約（エージェント側の責務）
 - MariaDB / Percona / Aurora MySQL 等の派生製品ドキュメント（将来の拡張候補）
+- MySQL Shell / Router / Connector / NDB Cluster 等、リファレンスマニュアルとサーバーのリリースノート以外のドキュメント（将来の拡張候補）
+- 日本語版など英語以外のマニュアル（英語版 `/en/` のみ対象。日本語での質問はエージェントが英訳して検索する）
 - 埋め込みベクトルによるセマンティック検索（MVP では全文検索。将来の拡張候補）
 
 ## 6. 対象ドキュメント
 
-MVP の対象は以下の 2 種類。その他（MySQL Shell、Connector/J、Router、NDB Cluster 等）は将来の拡張で `doc_set` として追加する。
+対象は以下の 2 種類（英語版のみ）に限定する。その他（MySQL Shell、Connector/J、Router、NDB Cluster 等）は必要になった時点で `doc_set` として追加できる構造にだけしておく。
 
 | doc_set | URL パターン | 用途 |
 |---|---|---|

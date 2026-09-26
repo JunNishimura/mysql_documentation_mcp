@@ -45,8 +45,9 @@
 
 - [ ] `lookup_reference`（システム変数の属性表の構造化を含む）
 - [ ] `get_upgrade_guide`, `browse_toc`, `search_table`
-- [ ] 対象 doc_set 追加（MySQL Shell, Router, Connector 等）
-- [ ] （検討）Streamable HTTP トランスポート、Docker イメージ、日本語版マニュアル対応、ベクトル検索
+- [ ] （検討）Streamable HTTP トランスポート、Docker イメージ、ベクトル検索
+
+現時点で対象外と決めたもの（需要が出たら再検討）: MySQL Shell / Router / Connector 等の doc_set 追加、日本語版マニュアル対応。
 
 ## 2. テスト方針
 
@@ -70,11 +71,13 @@
 | `ALGORITHM=INSTANT` で可能な ALTER の種類 | `innodb-online-ddl-operations.html` |
 | 8.0 → 8.4 で削除されたサーバーオプション | 8.4 の「What Is New」ページ |
 
-## 4. 未決事項（相談したい点）
+## 4. 決定事項
 
-1. **対象ドキュメントの範囲**: MVP はリファレンスマニュアル＋サーバーのリリースノートとしたが、MySQL Shell / Router / InnoDB Cluster / Connector も初期から必要か。
-2. **日本語版マニュアル**: 一部バージョンに日本語訳（`/doc/refman/8.0/ja/` 等）が存在するが、更新が英語版より遅れる可能性がある。対応するか、英語版のみとするか。
-3. **既定バージョン**: `version` 省略時を「最新 LTS」とする案でよいか。
-4. **配布形態**: PyPI（`uvx` 起動）を主とする案でよいか。Docker イメージも必要か。
-5. **実装言語**: 参考実装に合わせて Python を想定。TypeScript（`npx` 起動）を希望する場合は技術スタックを見直す。
-6. **プロジェクトのライセンス**: コード部分のライセンス（Apache-2.0 / MIT 等）。
+| 項目 | 決定 |
+|---|---|
+| 対象ドキュメント | リファレンスマニュアル＋サーバーのリリースノートのみ。MySQL Shell / Router / Connector 等は対象外（必要最低限から始める） |
+| 言語 | 英語版マニュアルのみ。日本語版は対象外 |
+| `version` 省略時の既定値 | 最新 LTS（`MYSQL_DOC_DEFAULT_VERSION` で上書き可） |
+| 配布形態 | PyPI 公開、`uvx mysql-documentation-mcp` で起動。Docker イメージは当面作らない |
+| 実装言語 | Python 3.10+ |
+| ライセンス | Apache-2.0（参考実装の AWS 版と同じ） |

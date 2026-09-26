@@ -226,7 +226,7 @@ CREATE VIRTUAL TABLE chunks USING fts5(                           -- 見出し�
 ### 5.1 取得（fetcher）
 
 - `httpx.AsyncClient`、タイムアウト 30 秒、`follow_redirects=True`。
-- **許可ドメイン**: `^https://dev\.mysql\.com/doc/` と `^https://downloads\.mysql\.com/docs/` のみ。リダイレクト先も response hook で再検証（AWS 版 `enforce_redirect_allowlist` と同方式）。
+- **許可 URL**: `^https://dev\.mysql\.com/doc/(refman|relnotes/mysql)/[^/]+/en/` と `^https://downloads\.mysql\.com/docs/` のみ（対象外の doc_set・英語以外の言語は拒否し、その旨をエラーで返す）。リダイレクト先も response hook で再検証（AWS 版 `enforce_redirect_allowlist` と同方式）。
 - User-Agent: `mysql-documentation-mcp/<version> (+<repo URL>)`。`MYSQL_DOC_USER_AGENT` で上書き可（社内プロキシ対策）。
 - プロキシ: httpx 標準の `HTTPS_PROXY` 等の環境変数に従う。
 - レート制限: ホスト毎トークンバケット（既定 2 req/s）。429/503 は指数バックオフで最大 3 回リトライ。
@@ -306,7 +306,7 @@ AWS 版にならい、FastMCP の `instructions` に以下を記載する:
 
 | 用途 | 採用 | 理由 |
 |---|---|---|
-| 言語 | Python 3.10+ | 参考実装と同じ。HTML 解析・MCP SDK が充実 |
+| 言語 | Python 3.10+ | 参考実装と同じ。HTML 解析・MCP SDK が充実（決定済み） |
 | MCP | `mcp`（公式 Python SDK の FastMCP） | stdio トランスポート。将来 Streamable HTTP も同 SDK で対応可 |
 | HTTP | `httpx` | async 対応・プロキシ対応 |
 | HTML 解析 | `beautifulsoup4` + `lxml` | 大きなページ（数 MB）でも高速 |
@@ -314,7 +314,8 @@ AWS 版にならい、FastMCP の `instructions` に以下を記載する:
 | 検索 | `sqlite3`（標準ライブラリ, FTS5） | 追加依存なし |
 | パス | `platformdirs` | OS 毎のキャッシュ場所 |
 | 型/検証 | `pydantic` | ツール引数・戻り値スキーマ |
-| パッケージ管理 | `uv` / PyPI 配布（`uvx` 起動） | 参考実装と同じ |
+| パッケージ管理 | `uv` / PyPI 配布（`uvx` 起動） | 参考実装と同じ（決定済み） |
+| ライセンス | Apache-2.0 | 参考実装と同じ。特許条項を含む（決定済み） |
 | テスト | `pytest`, `pytest-asyncio`, `respx`（HTTP モック） | |
 | Lint/型 | `ruff`, `pyright` | |
 
@@ -323,6 +324,7 @@ AWS 版にならい、FastMCP の `instructions` に以下を記載する:
 ```
 mysql_documentation_mcp/
 ├── pyproject.toml
+├── LICENSE                     # Apache-2.0
 ├── README.md
 ├── docs/                       # 本設計ドキュメント
 ├── src/mysql_documentation_mcp/
