@@ -26,7 +26,7 @@ MySQL 公式ドキュメント（[dev.mysql.com/doc](https://dev.mysql.com/doc/)
 | `read_sections` | 巨大ページから指定見出し/アンカーのみ取得 | MVP |
 | `get_release_notes` | バージョン範囲の変更点をカテゴリ・キーワードで抽出 | MVP |
 | `list_versions` | 参照可能なバージョン一覧（LTS / Innovation） | MVP |
-| `lookup_reference` | システム変数・関数・エラーコード等をピンポイント参照 | 拡張 |
+| `lookup_reference` | システム変数・オプション・関数等をピンポイント参照 | 拡張 |
 | `get_upgrade_guide` / `browse_toc` / `search_table` | 移行ガイド・目次ブラウズ・大きな表の検索 | 拡張 |
 
 ## ライセンス
