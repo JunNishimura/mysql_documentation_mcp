@@ -21,7 +21,6 @@ MySQL 版として、**MySQL 公式ドキュメント（dev.mysql.com/doc）を 
 | UC-1 | クエリ作成・レビュー | `search_documentation("window function frame clause", version="8.4")` → `read_documentation(...)` で構文を確認してからクエリを書く |
 | UC-2 | バージョンアップ時の変更点調査 | `get_release_notes(from_version="8.0.36", to_version="8.4.6", categories=["deprecation_removal", "functionality_changed"])` で差分を列挙し、`get_upgrade_guide` で公式の移行手順を確認 |
 | UC-3 | 設定値の確認 | `lookup_reference("innodb_buffer_pool_size", kind="system_variable", version="8.4")` でデフォルト値・範囲・動的可否を取得 |
-| UC-4 | エラー調査 | `lookup_reference("1213", kind="error")` でエラーコードの意味を確認 |
 | UC-5 | 機能の存在確認 | 同一ページを複数バージョンで読み比べ（URL のバージョン部分を差し替え）、導入/削除バージョンを確認 |
 
 ## 3. 機能要件
@@ -36,7 +35,7 @@ MySQL 版として、**MySQL 公式ドキュメント（dev.mysql.com/doc）を 
 
 ### 推奨（MVP 後）
 
-- **FR-6 リファレンス項目のピンポイント参照**: システム変数・ステータス変数・コマンドラインオプション・関数・SQL 文・エラーコードを名前で引く。
+- **FR-6 リファレンス項目のピンポイント参照**: システム変数・ステータス変数・コマンドラインオプション・関数・演算子を名前で引く（エラーコードは別ドキュメントのため対象外）。
 - **FR-7 アップグレードガイド**: 「What Is New in MySQL X」「Upgrading MySQL」系ページへの導線。
 - **FR-8 目次ブラウズ**: 検索でヒットしない場合に章立て（TOC）をたどれる（AWS 版の `recommend` の代替）。
 - **FR-9 大きな表の検索**: オプション/変数一覧表など巨大な表から行を絞り込む（AWS 版の `search_table` 相当）。
@@ -72,7 +71,8 @@ MySQL 版として、**MySQL 公式ドキュメント（dev.mysql.com/doc）を 
 | `refman` | `https://dev.mysql.com/doc/refman/{version}/en/{page}.html` | リファレンスマニュアル本体 |
 | `relnotes` | `https://dev.mysql.com/doc/relnotes/mysql/{series}/en/news-{x}-{y}-{z}.html` | サーバーのリリースノート |
 
-対象バージョン: 5.7（EOL だが移行元として需要あり）/ 8.0 / 8.4 LTS / 9.x（9.7 LTS 含む）/ 26.x 以降（カレンダーバージョニング）。
+対象バージョン（M0 時点で公開されているもの）: refman は 8.0 / 8.4 LTS / 9.7 LTS / 26.7。リリースノートはこれに加え、
+8.1〜8.3・9.0〜9.6 の Innovation リリースと 26.10（Early Access）も含む。5.7 のマニュアルは公開が終了しているため対象外。
 バージョン一覧はハードコードせず動的に取得する（→ [02_design.md](02_design.md) §5.4）。
 
 > 補足: MySQL は 9.7 LTS（2026-04）を最後に連番バージョンを終え、以降は `YY.M` 形式（例: 26.7）になったと公式マニュアルに記載がある。

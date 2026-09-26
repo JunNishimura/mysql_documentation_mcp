@@ -102,23 +102,28 @@ read_sections(
 get_release_notes(
     from_version: str,                  # 例: "8.0.36"（この版は含まない）
     to_version: str,                    # 例: "8.4.6"（この版を含む）
-    categories: list[str] | None = None,# 既定: ["deprecation_removal", "functionality_changed", "security", "incompatible"]
+    categories: list[str] | None = None,# 既定: "bug" 以外の全カテゴリ（例: ["deprecation-removal", "feature", "security"]）
+    important_only: bool = False,       # True なら "Important Change:" / "Incompatible Change:" の項目のみ
     keyword: str | None = None,         # 例: "replication", "mysql_native_password"
     max_length: int = 10000,
     start_index: int = 0,
 ) -> str
 ```
 
-- 範囲内の各パッチ版のリリースノートページ（`news-X-Y-Z.html`）を取得し、見出し単位で分類して抽出する。
-- カテゴリ正規化（リリースノートの見出し → 内部カテゴリ）:
+- 範囲内の各リリースのリリースノートページ（`news-X-Y-Z.html`）を取得し、カテゴリ単位で抽出する。
+  Innovation リリースも範囲に含む（例: 8.0.36 → 8.4.6 なら 8.1.0, 8.2.0, 8.3.0 も対象。§5.5 の系列対応表で解決）。
+- カテゴリはページ内の各カテゴリ節のアンカー `mysqld-{X}-{Y}-{Z}-{slug}` の `slug` をそのまま使う（M0 で確認済み）。主なもの:
 
-  | 見出し（例） | category |
+  | slug | 見出し |
   |---|---|
-  | Deprecation and Removal Notes | `deprecation_removal` |
-  | Functionality Added or Changed | `functionality_changed` |
-  | Security Notes | `security` |
-  | 各項目内の "Important Change" / "Incompatible Change" 表記 | `incompatible`（横断フラグ） |
-  | Bugs Fixed | `bugs_fixed`（量が多いため既定では除外） |
+  | `deprecation-removal` | Deprecation and Removal Notes |
+  | `feature` | Functionality Added or Changed |
+  | `security` | Security Notes |
+  | `bug` | Bugs Fixed（量が多いため既定では除外） |
+  | `innodb`, `optimizer`, `replication`, `performance-schema`, `configuration`, `authentication`, `json` 等 | 機能領域別の Notes |
+
+- 項目冒頭の太字接頭辞（`Important Change:`, `Incompatible Change:`, `InnoDB:`, `Replication:` 等）は `flags` として抽出し、
+  `important_only` と `keyword` の絞り込みに使う。
 
 - 系列をまたぐ場合（8.0 → 8.4 など）は、各系列の該当範囲を連結し、
   **系列の境界では `get_upgrade_guide` を併用するよう出力内でヒントを出す**（大規模変更は新系列の GA 版ノートより「What Is New」ページのほうが網羅的なため）。
@@ -127,22 +132,27 @@ get_release_notes(
 ### 3.5 `list_versions`（MVP）
 
 ```python
-list_versions() -> list[{"version": "8.4", "type": "LTS" | "Innovation" | "GA" | "EOL", "latest_release": "8.4.6",
+list_versions() -> list[{"version": "8.4", "track": "LTS" | "Innovation" | "Early Access" | "unknown",
+                         "latest_release": "8.4.12", "has_refman": true,
                          "refman_url": "...", "relnotes_url": "..."}]
 ```
+- `has_refman=false` の例: 26.10.0（Early Access）はリリースノートのみ存在し、マニュアルは無い（M0 時点）。
 
 ### 3.6 `lookup_reference`（MVP 後）
 
 ```python
 lookup_reference(
-    name: str,         # 例: "innodb_buffer_pool_size", "JSON_TABLE", "ER_LOCK_DEADLOCK", "1213"
-    kind: str | None = None,  # "system_variable" | "status_variable" | "option" | "function" | "statement" | "error" | None(自動)
+    name: str,         # 例: "innodb_buffer_pool_size", "Threads_connected", "--port", "JSON_EXTRACT"
+    kind: str | None = None,  # "system_variable" | "status_variable" | "option" | "function" | "operator" | None(自動)
     version: str | None = None,
 ) -> str
 ```
 
-- インデックス構築時にアンカー ID の命名規則（`sysvar_*`, `statvar_*`, `option_mysqld_*`, `function_*`, `error_er_*` 等 ※要検証）から
-  「名前 → URL#アンカー」の辞書テーブルを作っておき、該当セクションだけを返す。
+- インデックス構築時に Info アーカイブのタグテーブル（§4.3）からアンカー ID を取り込み、命名規則で種別を判定して
+  「名前 → URL#アンカー」の辞書テーブルを作っておき、該当セクションだけを返す。M0 で確認した規則（8.4 の件数）:
+  `option_*`（1,942。`option_mysqld_port` のように `option_{プログラム}_{名前}`）、`sysvar_*`（985）、`statvar_*`（549）、
+  `function_*`（507）、`operator_*`（46）、`priv_*`（81）、`optflag_*`（26）。
+- エラーコードは refman ではなく別ドキュメント「MySQL Error Message Reference」（`/doc/mysql-errors/{v}/en/`）にあるため対象外（doc_set 追加時に検討）。
 - システム変数の場合は属性表（Command-Line Format / System Variable / Scope / Dynamic / Type / Default Value / Valid Values）を構造化して先頭に出す。
 
 ### 3.7 `get_upgrade_guide`（MVP 後）
@@ -170,12 +180,12 @@ AWS 版と同等。`url`, `section_title`, `query`, `max_rows=20` を受け、�
 
 | 案 | 概要 | 長所 | 短所 |
 |---|---|---|---|
-| A. サイト内検索のスクレイピング | dev.mysql.com の検索ページ結果 HTML を解析 | 事前準備不要、常に最新 | 公開 API ではなく仕様変更で壊れる、バージョン絞り込み精度が不明、サイト負荷・規約面の懸念 |
-| B. ローカル全文検索（SQLite FTS5） | マニュアルを取得してローカルでインデックス化 | 高速・オフライン可・バージョン毎に正確・追加依存なし（SQLite は標準ライブラリ） | 初回構築が必要（数十 MB の取得）、マニュアル更新の追従が必要 |
+| A. サイト内検索のスクレイピング | `https://dev.mysql.com/doc/search/?q=...` の結果 HTML を解析 | 事前準備不要、常に最新 | 公開 API ではなく仕様変更で壊れる。M0 で確認したところ結果は最新版（9.7）のページのみで、バージョン指定の方法が見当たらない |
+| B. ローカル全文検索（SQLite FTS5） | マニュアルを取得してローカルでインデックス化 | 高速・オフライン可・バージョン毎に正確・追加依存なし（SQLite は標準ライブラリ） | 初回構築が必要（バージョン毎に約 4 MB の取得）、マニュアル更新の追従が必要 |
 | C. ベクトル検索 | 埋め込みモデルで意味検索 | 言い換え・日本語クエリに強い | 埋め込みモデル依存が重い、配布が複雑、MVP には過剰 |
 | D. 汎用 Web 検索 API | Google/Bing 等を site: 指定で利用 | 実装容易 | API キー・課金が必要、バージョン絞り込み不可 |
 
-### 4.2 採用: **B（ローカル FTS5）を主、A を任意のフォールバック**
+### 4.2 採用: **B（ローカル FTS5）**。A はバージョン指定ができないため採用しない
 
 - 識別子（変数名・関数名）での検索が中心となる MySQL の用途では BM25 全文検索で十分な精度が見込める。
 - 日本語での自然文クエリは、エージェントが英訳してから呼ぶよう `instructions` とツール説明で誘導する。
@@ -183,23 +193,30 @@ AWS 版と同等。`url`, `section_title`, `query`, `max_rows=20` を受け、�
 
 ### 4.3 インデックス構築方法
 
-優先順に試す:
+**refman: 公式 Info 形式アーカイブ `https://downloads.mysql.com/docs/mysql-{version}.info.zip` から構築する**（M0 で確定）。
 
-1. **公式オフライン HTML アーカイブを一括取得**
-   dev.mysql.com/doc のダウンロード欄にある HTML 版アーカイブ（例: `refman-8.4-en.html-chapter.zip` 等 ※ファイル名・提供有無は要検証）を
-   1 リクエストで取得して展開・解析する。最速かつサイト負荷が最小。
-2. **TOC からのクロール**
-   アーカイブが無いバージョン向け。`https://dev.mysql.com/doc/refman/{v}/en/` の目次をたどり、
-   同時接続 2・リクエスト間隔 ≥ 0.5 秒で全ページを取得（`robots.txt` を尊重）。数千ページ規模のため数十分かかる想定で、
-   MCP ツール呼び出しの中ではなく CLI (`mysql-documentation-mcp index --version 8.4`) での事前実行を推奨する。
+- HTML 版の一括アーカイブは提供されていない（`refman-*-en.html-chapter.zip` 等は 404）。提供形式は PDF / man / Info のみ。
+- Info は zip 約 4 MB（展開後約 20 MB）で、1 リクエストで全文が取得できる。8.0 / 8.4 / 9.7 / 26.7 で提供あり。
+- Info を採用できる根拠（8.4 で確認）:
+  - ノード名が HTML のページ名と一致する（ノード `select` → `select.html`）。約 2,400 ノード。
+  - ノードヘッダ `File: ..., Node: select, Next: ..., Prev: ..., Up: sql-data-manipulation-statements` から目次の親子関係が作れる（`browse_toc` にも使える）。
+  - 各ノード冒頭に節番号付きタイトル（`15.2.13 SELECT Statement`）がある。
+  - 末尾のタグテーブル（`Ref: sysvar_sql_mode2676725`、約 6,700 件）からアンカー ID と所属ノードが得られる。
+  - 索引エントリ（`* sql_mode system variable: server-system-variables.`）も検索語の補強に使える。
+- 注意: Info では構文中のプレースホルダが大文字化される（HTML の `select_expr` → Info の `SELECT_EXPR`）。
+  そのため **Info は検索インデックス専用** とし、エージェントに返す本文は必ず HTML から取得・変換する（§3.2）。
+- Info が存在しないバージョンのみ、目次 HTML をたどるクロールにフォールバックする
+  （同時接続 2・間隔 ≥ 0.5 秒。`robots.txt` は `/doc/` を禁止していない）。
+
+**relnotes: 系列目次ページから各 `news-X-Y-Z.html` を取得して構築する**（1 系列あたり数十ページ。§5.5）。
 
 構築の起点:
 - CLI: `mysql-documentation-mcp index --version 8.4 [--doc-set refman|relnotes|all] [--refresh]`
 - MCP サーバー起動時: `MYSQL_DOC_PRELOAD_VERSIONS=8.4,9.7` が指定されていればバックグラウンド構築
-- 検索時: 未構築なら方法 1 で同期構築を試み、失敗したら「CLI で構築してください」というエラーメッセージを返す
+- 検索時: 未構築なら Info アーカイブから同期構築し（数秒〜十数秒を想定）、`ctx.report_progress` で進捗を通知する
 
-更新: インデックスにマニュアルの生成日（各ページのフッターにある "Generated on" 等 ※要検証）と構築日時を保存し、
-`MYSQL_DOC_INDEX_TTL_DAYS`（既定 30 日）を超えたら次回起動時にバックグラウンド再構築する。
+更新: Info アーカイブの `Last-Modified`（例: 2026-09-25）と構築日時を `meta` に保存する。
+`MYSQL_DOC_INDEX_TTL_DAYS`（既定 7 日）を超えたら条件付き GET（`If-Modified-Since`）で確認し、更新があれば再構築する。
 
 ### 4.4 インデックススキーマ（SQLite）
 
@@ -226,6 +243,10 @@ CREATE VIRTUAL TABLE chunks USING fts5(                           -- 見出し�
 ### 5.1 取得（fetcher）
 
 - `httpx.AsyncClient`、タイムアウト 30 秒、`follow_redirects=True`。
+- **バージョンのすり替わり検知**: 存在しないバージョンの URL は最新 LTS にリダイレクトされる
+  （例: `/doc/refman/5.7/en/` や `/doc/refman/26.10/en/` → `/doc/refman/9.7/en/index.html`）。
+  最終 URL のバージョンが要求と異なる場合は、内容を返さずに「このバージョンのマニュアルは公開されていない」旨のエラーにする。
+  取り違えたバージョンの内容を返すと誤回答に直結するため。
 - **許可 URL**: `^https://dev\.mysql\.com/doc/(refman|relnotes/mysql)/[^/]+/en/` と `^https://downloads\.mysql\.com/docs/` のみ（対象外の doc_set・英語以外の言語は拒否し、その旨をエラーで返す）。リダイレクト先も response hook で再検証（AWS 版 `enforce_redirect_allowlist` と同方式）。
 - User-Agent: `mysql-documentation-mcp/<version> (+<repo URL>)`。`MYSQL_DOC_USER_AGENT` で上書き可（社内プロキシ対策）。
 - プロキシ: httpx 標準の `HTTPS_PROXY` 等の環境変数に従う。
@@ -240,28 +261,51 @@ CREATE VIRTUAL TABLE chunks USING fts5(                           -- 見出し�
 
 ### 5.3 HTML → Markdown 変換（converter）
 
-- BeautifulSoup で本文コンテナを抽出（dev.mysql.com の本文要素のセレクタは実装時に実ページで確定する。候補: `#docs-body`, `div.section`, `div.chapter` ※要検証）。
-- 除去: ヘッダー、左ナビ、パンくず、前後ページリンク、フッター、`script`/`style`、"PREV/HOME/UP/NEXT" 等。
+- 本文コンテナは `#docs-body`（M0 で確認。refman・relnotes 共通）。その外側のパンくず（`#docs-breadcrumbs`）、
+  バージョン切替（`#docs-version-nav`）、`footer` は自動的に除外される。本文内の `script`/`style`、`a.indexterm` は除去。
+- ページタイトルは `<title>`（`MySQL :: MySQL 8.4 Reference Manual :: 15.2.13 SELECT Statement`）から節番号とタイトルを取る。
 - `markdownify`（ATX 見出し）で変換。以下は MySQL 特有の調整:
-  - `<pre class="programlisting">` → 言語付きコードブロック（`sql` / `ini` / `terminal` を class やプロンプトから推定）
+  - `<pre class="programlisting language-sql">` → 言語付きコードブロック（`language-*` クラスから言語を取る）
   - 構文定義（`SELECT [ALL | DISTINCT] ...`）はそのままコードブロックで保持（書式崩れは正確性に直結するため）
-  - システム変数の属性表は Markdown 表に変換
+  - システム変数等は `<li class="listitem">` 内の `<a name="sysvar_...">` と属性表（`div.informaltable`: Command-Line Format / System Variable / Scope / Dynamic / SET_VAR Hint Applies / Type / Default Value / Valid Values）で構成される。
+    属性表は Markdown 表に変換し、`read_sections` ではこの `li` 1 つを 1 セクションとして扱う
+    （`server-system-variables.html` は本文だけで約 37 万文字あるため、全文読みは現実的でない）
   - 相対リンクは絶対 URL に変換（エージェントが続けて `read_documentation` できるように）
-  - Note / Important / Warning ブロックは `> **Note:**` 形式の引用に変換
+  - `div.note` / `div.important` / `div.warning` は `> **Note:**` 形式の引用に変換
 
 ### 5.4 バージョン管理（versions）
 
-- `Version` 型: `major.minor[.patch]` をタプル比較。連番（5.7〜9.7）と暦年（26.7〜）は数値比較でそのまま順序が保たれる（9.x < 26.x）。
-- バージョン一覧は `https://dev.mysql.com/doc/`（マニュアル一覧）と各系列のリリースノート目次から取得し `versions.json` に 1 日キャッシュ。
-  取得失敗時はパッケージ同梱の最小限のフォールバック一覧を使う。
-- LTS / Innovation の判定は refman の「MySQL Releases: Innovation and LTS」ページ（`mysql-releases.html`）から取得する（要検証: 機械可読に抽出できるか）。
+- `Version` 型: `major.minor[.patch]` をタプル比較。連番（〜9.7）と暦年（26.7〜、`YY.M.P`）は数値比較でそのまま順序が保たれる（9.x < 26.x）。
+- 公開中の refman（M0 時点）: **8.0 / 8.4 / 9.7 / 26.7**。5.7 と Innovation 系列（8.1〜8.3, 9.0〜9.6）のマニュアルは公開終了しており、
+  それらの URL は後継バージョンへリダイレクトされる（5.7 → 9.7、8.3 → 8.4）。
+- バージョン一覧は `https://dev.mysql.com/doc/` のリンク（`/doc/refman/{v}/en/`, `/doc/relnotes/mysql/{s}/en/`）と各系列のリリースノート目次から取得し
+  `versions.json` に 1 日キャッシュ。取得失敗時はパッケージ同梱のフォールバック一覧を使う。
+- **LTS / Innovation の判定は機械的に取得できない**（M0 で確認）。`mysql-releases.html` は文章のみで表が無く、
+  「暦年バージョンからは LTS か Innovation か判別できない」と明記されている。リリースノートのタイトルにも記載が無い。
+  そのため track はパッケージ同梱の対応表（8.4 = LTS, 9.7 = LTS, 26.7 = Innovation 等）で持ち、リリースごとに更新する。
+  対応表に無いバージョンは `unknown` とする。
+- **最新 LTS の判定**: バージョン無しの `/doc/refman/en/` が最新 LTS（現在 9.7）にリダイレクトされるので、その転送先を使う。
+  取得できない場合は同梱の対応表で最も新しい LTS。
 - `"8.4.6"` のようなパッチ指定は refman では系列 `8.4` に丸め、relnotes ではパッチ版のページを指す。
 
 ### 5.5 リリースノート解析（relnotes）
 
 - 系列目次（`/doc/relnotes/mysql/{series}/en/`）から `news-X-Y-Z.html` の一覧とリリース日を取得。
-- 各ページを見出しでカテゴリ分割し、箇条書き項目単位で `{version, date, category, text, anchor, flags}` に正規化。
-- `flags` には項目冒頭の "Important Change:" / "Incompatible Change:" / "InnoDB:" / "Replication:" 等の接頭辞を抽出（keyword 絞り込みにも利用）。
+  リンクテキストが `Changes in MySQL 8.4.12 (2026-08-18)` の形式なので、バージョンと日付をここから取る。
+- **Innovation リリースのノートは、次の LTS 系列のディレクトリにある**（M0 で確認）:
+
+  | 系列ディレクトリ | 含まれるリリース |
+  |---|---|
+  | `8.0/` | 8.0.0 〜 8.0.x |
+  | `8.4/` | 8.1.0, 8.2.0, 8.3.0, 8.4.0 〜 8.4.x |
+  | `9.7/` | 9.0.0 〜 9.6.0, 9.7.0 〜 9.7.x |
+  | `26.7/` | 26.7.0 〜 |
+  | `26.10/` | 26.10.0（Early Access） |
+
+  そのため「バージョン → ページ URL」はパターンから推測せず、全系列の目次を読んで作った対応表で引く（旧系列 URL の `8.3/` 等はリダイレクトされる）。
+- 各ページは `div.simplesect`（アンカー `mysqld-{X}-{Y}-{Z}-{slug}`）ごとにカテゴリ分割し、その中の `li.listitem` を 1 項目として
+  `{version, date, category, text, anchor, flags}` に正規化する（ページ先頭の目次の `li` は除外）。
+- `flags` には項目冒頭の `<strong>` 接頭辞（`Important Change:`, `InnoDB:`, `Replication:` 等）を入れる。
 - 正規化済み項目は `index/relnotes-{series}.sqlite` に保存し、`search_documentation(doc_set="relnotes")` の対象にもする。
 
 ## 6. サーバー instructions（エージェント向けガイド・骨子）
@@ -282,7 +326,7 @@ AWS 版にならい、FastMCP の `instructions` に以下を記載する:
 | `MYSQL_DOC_DEFAULT_VERSION` | `version` 省略時のバージョン | `lts`（最新 LTS） |
 | `MYSQL_DOC_CACHE_DIR` | キャッシュ・インデックスの保存先 | OS 標準のキャッシュディレクトリ（`platformdirs`） |
 | `MYSQL_DOC_PRELOAD_VERSIONS` | 起動時にインデックスを準備するバージョン（カンマ区切り） | なし |
-| `MYSQL_DOC_INDEX_TTL_DAYS` | インデックス再構築までの日数 | `30` |
+| `MYSQL_DOC_INDEX_TTL_DAYS` | インデックスの更新確認までの日数 | `7` |
 | `MYSQL_DOC_CACHE_TTL_DAYS` | ページキャッシュの有効日数 | `7` |
 | `MYSQL_DOC_OFFLINE` | `1` でネットワークアクセス禁止 | `0` |
 | `MYSQL_DOC_USER_AGENT` | HTTP User-Agent の上書き | パッケージ名/バージョン |
@@ -355,6 +399,8 @@ mysql_documentation_mcp/
 
 - **SSRF 防止**: 許可ドメイン以外の URL は取得前に拒否。リダイレクト先も検証。
 - **プロンプトインジェクション**: 取得コンテンツはドキュメント本文としてそのまま返し、サーバー側で解釈・実行しない。
-- **著作権**: MySQL ドキュメントは Oracle の著作物で再配布に制限がある（各マニュアルの Legal Notices 参照）。
+- **著作権**: MySQL ドキュメントは Oracle の著作物。マニュアルの Legal Notices（"Use of This Documentation"）では、
+  公開・再配布は禁止される一方、「内容を改変しない限り他形式への変換は許可」とされている。
+  利用者環境での取得・Markdown 変換・キャッシュはこの範囲に収まるようにする（要約や書き換えをサーバー側で行わない理由でもある）。
   リポジトリ・パッケージ・テストフィクスチャに本文を含めず、利用者環境でのみ取得・キャッシュする。
 - **サイト負荷**: キャッシュ・レート制限・アーカイブ一括取得優先で、リクエスト数を最小化する。
