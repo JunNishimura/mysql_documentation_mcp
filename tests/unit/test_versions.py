@@ -5,6 +5,8 @@ import respx
 
 from mysql_documentation_mcp.core.fetcher import Fetcher
 from mysql_documentation_mcp.core.versions import (
+    Catalog,
+    Release,
     Version,
     VersionCatalog,
     VersionError,
@@ -138,3 +140,20 @@ async def test_fallback_when_the_site_is_unreachable(settings):
     assert not data.complete
     # The newest bundled LTS is used when the site cannot tell.
     assert await catalog.resolve_refman_version(None, "lts") == "9.7"
+
+
+def test_release_listed_in_two_directories():
+    own = Release("26.7.0", "2026-07-28", "https://x/26.7/en/news-26-7-0.html")
+    copy = Release("26.7.0", "2026-07-28", "https://x/26.10/en/news-26-7-0.html")
+    early = Release("26.10.0", "2026-09-18", "https://x/26.10/en/news-26-10-0.html", True)
+    innovation = Release("8.2.0", "2023-10-25", "https://x/8.4/en/news-8-2-0.html")
+    catalog = Catalog(
+        refman_versions=["8.4", "26.7"],
+        # The 26.10 index also links the 26.7 releases; its own directory wins.
+        relnotes={"26.10": [copy, early], "26.7": [own], "8.4": [innovation]},
+    )
+    assert catalog.releases() == [innovation, own, early]
+    assert catalog.releases_in("26.10") == [early]
+    assert catalog.directory_of("26.7") == "26.7"
+    assert catalog.directory_of("8.2") == "8.4"
+    assert catalog.directory_of("5.7") is None

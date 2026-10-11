@@ -30,6 +30,7 @@ async def test_lists_read_only_tools(client):
         "list_versions",
         "read_documentation",
         "read_sections",
+        "get_release_notes",
     }
     for tool in tools.values():
         assert tool.annotations is not None and tool.annotations.read_only_hint

@@ -322,6 +322,11 @@ def _item_to_markdown(block: Tag, base_url: str) -> str:
     return _to_markdown(block, base_url)
 
 
+def fragment_to_markdown(fragment: Tag, base_url: str) -> str:
+    """Markdown of one element; a list item is converted without its bullet."""
+    return _item_to_markdown(fragment, base_url)
+
+
 def extract_sections(page: ParsedPage, names: list[str]) -> list[Section]:
     results: list[Section] = []
     for name in names:

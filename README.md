@@ -7,7 +7,7 @@ MySQL 公式ドキュメント（[dev.mysql.com/doc](https://dev.mysql.com/doc/)
 対象は MySQL リファレンスマニュアルとサーバーのリリースノート（英語版）。
 クエリ作成、設定値の確認、バージョンアップ時の変更点調査などで、エージェントが公式ドキュメントに基づいた（出典付きの）回答を出せるようにする。
 
-> **ステータス: 開発中**。検索（`search_documentation`）・読み取り（`read_documentation` / `read_sections`）・`list_versions` が使える（M2）。リリースノート系ツールは未実装。PyPI 未公開。
+> **ステータス: MVP 完成（M3）**。検索（`search_documentation`）・読み取り（`read_documentation` / `read_sections`）・`list_versions`・リリースノート（`get_release_notes`、リリースノート検索）が使える。PyPI 未公開。
 
 ## 使い方
 
@@ -31,7 +31,10 @@ Claude Code の場合:
 claude mcp add mysql-documentation -- uvx --from git+https://github.com/JunNishimura/mysql_documentation_mcp mysql-documentation-mcp
 ```
 
-使用例: 「MySQL 8.4 で `sql_mode` のデフォルト値は？公式ドキュメントを引用して」
+使用例:
+- 「MySQL 8.4 で `sql_mode` のデフォルト値は？公式ドキュメントを引用して」
+- 「8.0.36 から 8.4.6 にアップグレードするときの注意点を、リリースノートから洗い出して」
+- 「`mysql_native_password` はどのバージョンで非推奨・無効化された？」
 
 ### 検索インデックス
 
@@ -41,6 +44,13 @@ claude mcp add mysql-documentation -- uvx --from git+https://github.com/JunNishi
 ```bash
 uvx --from git+https://github.com/JunNishimura/mysql_documentation_mcp mysql-documentation-mcp index 8.4 9.7
 # 公開中の全バージョン: ... index all
+```
+
+リリースノートの検索（`search_documentation` の `doc_set="relnotes"`）は、系列（8.0 / 8.4 / 9.7 …）ごとに各リリースのページを取得して索引を作る
+（リリースノートには一括アーカイブが無いため。初回は 8.0 で約 20 秒、以降は新しいリリースの分だけ取得）。事前に作っておく場合:
+
+```bash
+uvx --from git+https://github.com/JunNishimura/mysql_documentation_mcp mysql-documentation-mcp index --doc-set relnotes 8.0 8.4
 ```
 
 ### 環境変数
@@ -77,11 +87,11 @@ uv run ruff check . && uv run ruff format --check . && uv run pyright
 
 | ツール | 概要 | 時期 |
 |---|---|---|
-| `search_documentation` | バージョン指定でリファレンスマニュアルを全文検索。該当する小見出し・変数などの #アンカー付き URL を返す | ✅ 実装済み |
+| `search_documentation` | バージョン指定でリファレンスマニュアルを全文検索。該当する小見出し・変数などの #アンカー付き URL を返す。`doc_set="relnotes"` でリリースノートの項目を検索（どのリリースで変わったか） | ✅ 実装済み |
 | `read_documentation` | ドキュメントページを Markdown で取得（ページネーション対応） | ✅ 実装済み |
 | `read_sections` | 巨大ページから指定見出し/アンカーのみ取得 | ✅ 実装済み |
 | `list_versions` | 参照可能なバージョン一覧（LTS / Innovation、最新リリース） | ✅ 実装済み |
-| `get_release_notes` | バージョン範囲の変更点をカテゴリ・キーワードで抽出 | MVP（M3） |
+| `get_release_notes` | バージョン範囲（系列またぎ・Innovation 込み）の変更点を、カテゴリ・重要度・キーワードで絞って Markdown で返す | ✅ 実装済み |
 | `lookup_reference` | システム変数・オプション・関数等をピンポイント参照 | 拡張 |
 | `get_upgrade_guide` / `browse_toc` / `search_table` | 移行ガイド・目次ブラウズ・大きな表の検索 | 拡張 |
 

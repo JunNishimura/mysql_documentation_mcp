@@ -8,6 +8,8 @@ import pytest
 
 from mysql_documentation_mcp.config import Settings
 from mysql_documentation_mcp.core.fetcher import Fetcher
+from mysql_documentation_mcp.tools.read import DocumentService
+from mysql_documentation_mcp.tools.relnotes import ReleaseNotesService
 from mysql_documentation_mcp.tools.search import SearchService
 
 pytestmark = pytest.mark.live
@@ -69,4 +71,41 @@ async def test_recall_at_3(settings: Settings):
         print(f"MISS {query!r}: {pages}")
     recall = 1 - len(misses) / len(EVAL)
     print(f"Recall@3 = {recall:.2f}")
+    assert recall >= 0.8
+
+
+# Release notes: (query, release-notes series, acceptable (release, category slug) pairs).
+RELNOTES_EVAL = [
+    ("mysql_native_password", "8.4", [("8.4.0", "deprecation-removal")]),
+    ("binlog_transaction_dependency_tracking", "8.4", [("8.2.0", "deprecation-removal")]),
+    ("START SLAVE removed", "8.4", [("8.4.0", "deprecation-removal")]),
+    ("query cache removed", "8.0", [("8.0.3", "deprecation-removal")]),
+    ("utf8mb3 deprecated", "8.0", [("8.0.13", "deprecation-removal")]),
+    ("expire_logs_days deprecated", "8.0", [("8.0.3", "feature")]),
+    ("caching_sha2_password default", "8.0", [("8.0.4", "security")]),
+    ("VECTOR data type", "9.7", [("9.0.0", "vectors")]),
+]
+
+
+async def test_relnotes_recall_at_3(settings: Settings):
+    fetcher = Fetcher(settings)
+    catalog = SearchService(settings, fetcher).catalog
+    service = ReleaseNotesService(settings, DocumentService(settings, fetcher), catalog)
+    misses = []
+    try:
+        for query, series, expected in RELNOTES_EVAL:
+            response = await service.search(query, series, 3)
+            found = [(r.release, r.url.split("#")[-1]) for r in response.results]
+            if not any(
+                release == r and anchor.endswith(f"-{slug}")
+                for r, anchor in found
+                for release, slug in expected
+            ):
+                misses.append((query, found))
+    finally:
+        await fetcher.aclose()
+    for query, found in misses:
+        print(f"MISS {query!r}: {found}")
+    recall = 1 - len(misses) / len(RELNOTES_EVAL)
+    print(f"Release notes Recall@3 = {recall:.2f}")
     assert recall >= 0.8

@@ -92,8 +92,29 @@ class Catalog:
     complete: bool = True  # False when some pages could not be read
 
     def releases(self) -> list[Release]:
-        out = [r for rs in self.relnotes.values() for r in rs]
-        return sorted(out, key=lambda r: Version.parse(r.version))
+        """Every release once, oldest first.
+
+        A release can be listed in more than one directory (the 26.10 index also links
+        26.7.x); the copy in its own series' directory wins.
+        """
+        chosen: dict[str, tuple[bool, Release]] = {}
+        for directory, releases in self.relnotes.items():
+            for release in releases:
+                own = Version.parse(release.version).series == directory
+                if release.version not in chosen or (own and not chosen[release.version][0]):
+                    chosen[release.version] = (own, release)
+        return sorted((r for _, r in chosen.values()), key=lambda r: Version.parse(r.version))
+
+    def releases_in(self, directory: str) -> list[Release]:
+        """Releases whose notes are read from the given series directory."""
+        return [r for r in self.releases() if r in self.relnotes.get(directory, [])]
+
+    def directory_of(self, series: str) -> str | None:
+        """Release-notes directory holding a series' releases (8.2 -> 8.4)."""
+        for release in reversed(self.releases()):
+            if Version.parse(release.version).series == series:
+                return next(d for d, rs in self.relnotes.items() if release in rs)
+        return None
 
 
 @dataclass(frozen=True)
@@ -152,7 +173,7 @@ class VersionCatalog:
         text = (spec or default).strip().lower()
         available = sorted(catalog.refman_versions, key=Version.parse)
         if text in ("lts", "latest-lts"):
-            lts = catalog.latest_lts or _newest_known_lts(available)
+            lts = catalog.latest_lts or newest_known_lts(available)
             if lts is None:
                 raise VersionError("Could not determine the latest LTS version")
             return lts
@@ -267,7 +288,7 @@ class VersionCatalog:
             logger.warning("Could not write %s: %s", self._path, e)
 
 
-def _newest_known_lts(available: list[str]) -> str | None:
+def newest_known_lts(available: list[str]) -> str | None:
     lts = [v for v in available if KNOWN_TRACKS.get(v) == "LTS"]
     return max(lts, key=Version.parse) if lts else None
 
