@@ -15,6 +15,12 @@ _DOC_URL_RE = re.compile(
 )
 _DOWNLOADS_URL_RE = re.compile(r"^https://downloads\.mysql\.com/docs/[A-Za-z0-9._-]+$")
 
+DOC_INDEX_URL = "https://dev.mysql.com/doc/"
+# Version-less alias that the site redirects to the latest LTS manual.
+LATEST_REFMAN_URL = "https://dev.mysql.com/doc/refman/en/"
+# Pages the server itself reads to discover versions; not accepted from tool callers.
+_INTERNAL_URLS = frozenset({DOC_INDEX_URL, LATEST_REFMAN_URL})
+
 EXAMPLE_URLS = (
     "https://dev.mysql.com/doc/refman/8.4/en/select.html",
     "https://dev.mysql.com/doc/relnotes/mysql/8.4/en/news-8-4-0.html",
@@ -76,7 +82,19 @@ def parse_doc_url(raw_url: str) -> DocUrl:
 def is_allowed_url(url: str) -> bool:
     """Whether the fetcher may request (or be redirected to) ``url``."""
     url = urldefrag(url)[0].split("?", 1)[0]
-    return bool(_DOC_URL_RE.match(url) or _DOWNLOADS_URL_RE.match(url))
+    return bool(_DOC_URL_RE.match(url) or _DOWNLOADS_URL_RE.match(url) or url in _INTERNAL_URLS)
+
+
+def refman_url(version: str, page: str = "") -> str:
+    return f"https://dev.mysql.com/doc/refman/{version}/en/{page}"
+
+
+def relnotes_url(series: str, page: str = "") -> str:
+    return f"https://dev.mysql.com/doc/relnotes/mysql/{series}/en/{page}"
+
+
+def info_archive_url(version: str) -> str:
+    return f"https://downloads.mysql.com/docs/mysql-{version}.info.zip"
 
 
 def version_mismatch_error(requested: DocUrl, served_url: str) -> str | None:

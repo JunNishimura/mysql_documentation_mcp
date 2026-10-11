@@ -62,17 +62,14 @@ def _format_time(ts: float) -> str:
 
 
 class DocumentService:
-    def __init__(self, settings: Settings, fetcher: Fetcher | None = None) -> None:
+    def __init__(self, settings: Settings, fetcher: Fetcher) -> None:
         self._settings = settings
-        self._fetcher = fetcher or Fetcher(settings)
+        self._fetcher = fetcher
         self._cache = PageCache(settings.cache_dir)
         # Parsing and converting a large page takes seconds (server-system-variables.html
         # is ~1 MB), so recently used pages are kept in memory for paginated reads.
         self._recent: OrderedDict[str, _LoadedPage] = OrderedDict()
         self._recent_max = 8
-
-    async def aclose(self) -> None:
-        await self._fetcher.aclose()
 
     async def _load(self, raw_url: str) -> _LoadedPage:
         try:

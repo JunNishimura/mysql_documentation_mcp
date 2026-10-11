@@ -49,23 +49,32 @@
 ```python
 search_documentation(
     query: str,                 # 検索語（英語推奨。日本語はエージェント側で英訳するよう instructions で誘導）
-    version: str | None = None, # 例: "8.4", "9.7", "26.7", "lts", "latest"
-    doc_set: str = "refman",    # "refman" | "relnotes"
+    version: str | None = None, # 例: "8.4", "8.4.6", "9.7", "26.7", "lts", "latest"
     limit: int = 10,            # 1..50
-) -> list[SearchResult]
+) -> SearchResponse             # {query, version, manual, note, results: [SearchResult]}
 ```
+（`doc_set="relnotes"` によるリリースノート検索は M3 で追加する。）
 
-`SearchResult`:
+`SearchResult`（M2 で実装した形）:
 ```json
-{ "rank": 1, "title": "15.2.13 SELECT Statement", "url": "https://dev.mysql.com/doc/refman/8.4/en/select.html",
-  "section_number": "15.2.13", "breadcrumb": "SQL Statements > Data Manipulation Statements",
-  "snippet": "... SELECT ... [WINDOW window_name AS (window_spec) ...", "version": "8.4" }
+{ "rank": 2, "title": "7.1.8 Server System Variables",
+  "url": "https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_sql_mode",
+  "section_number": "7.1.8", "breadcrumb": "7 MySQL Server Administration > 7.1 The MySQL Server",
+  "matched_section": "sql_mode", "snippet": "* '**sql_mode**' Command-Line Format '--**sql-mode**=name' ..." }
 ```
 
-- 実装: FTS5 の `bm25()` でスコアリング。重み付けは `title > headings > identifiers > body`。
-- 識別子対策: `sql_mode` のようなアンダースコアを含む語を 1 トークンとして扱うため、
-  トークナイザは `unicode61 tokenchars '_'` を使う。加えて body 列とは別に「識別子列」（アンカー ID・`<code>` 内の語）を持つ。
-- インデックス未構築のバージョンが指定された場合は §4.3 の方法で自動構築（進捗は `ctx.report_progress` で通知）。
+- 実装: FTS5 の `bm25()` でスコアリング。列の重みは `identifiers (10) > title (8) > heading (6) > body (1)`。
+- 検索語の組み立て: 引用符で囲んだ部分はフレーズ、それ以外は単語ごとに引用して渡す（FTS5 の演算子として解釈されず、構文エラーにならない）。
+  `how` `the` などの英語の機能語は落とす。まず全単語を含むもの（AND）を探し、件数が `limit` に満たなければ
+  いずれかを含むもの（OR）で補う。結果はページ単位に 1 件（そのページで最もスコアの高いチャンク）。
+- 識別子対策: トークナイザは `porter unicode61 tokenchars '_'`（語幹化あり、`sql_mode` を 1 語として扱う）。
+  `sql_mode` のような語は `"sql_mode" OR "sql mode"` として検索する。
+- 識別子列（identifiers）: ページ名、アンカー由来の名前（`sysvar_sql_mode` → `sql_mode`、`option_mysqld_sql-mode` → `sql-mode` / `--sql-mode` / `sql_mode`）、
+  索引語（`sql_mode system variable` 等）。索引語は、先頭語がアンカー由来の名前と一致するチャンクに付け、それ以外はページ冒頭のチャンクに付ける
+  （server-system-variables.html の冒頭チャンクに約 300 件の索引語が集中して、個々の変数より上位に来るのを防ぐ）。
+  `option_` の `_` 表記の別名はサーバー（`mysqld`）のオプションだけに付ける（`mysqlslap --sql-mode` が `sql_mode` 変数より上位に来るのを防ぐ）。
+- インデックス未構築のバージョンが指定された場合は §4.3 の方法でその場で構築する（ダウンロードと構築で 2〜3 秒）。
+- スニペットは Info 由来のため、構文中のプレースホルダは大文字になる（`TBL_NAME`）。正確な表記は `read_documentation` / `read_sections` で確認する。
 
 ### 3.2 `read_documentation`（MVP）
 
@@ -135,10 +144,12 @@ get_release_notes(
 ### 3.5 `list_versions`（MVP）
 
 ```python
-list_versions() -> list[{"version": "8.4", "track": "LTS" | "Innovation" | "Early Access" | "unknown",
-                         "latest_release": "8.4.12", "has_refman": true,
-                         "refman_url": "...", "relnotes_url": "..."}]
+list_versions() -> {"default_version": "9.7", "latest_lts": "9.7",
+                    "versions": [{"version": "8.4", "track": "LTS" | "Innovation" | "GA" | "Early Access" | "unknown",
+                                  "has_refman": true, "latest_release": "8.4.12", "latest_release_date": "2026-08-18",
+                                  "refman_url": "...", "relnotes_url": "..."}]}
 ```
+- マニュアルが無い Innovation 系列（8.1〜8.3, 9.0〜9.6）もリリースノートがあるので一覧に含める（`has_refman=false`）。
 - `has_refman=false` の例: 26.10.0（Early Access）はリリースノートのみ存在し、マニュアルは無い（M0 時点）。
 
 ### 3.6 `lookup_reference`（MVP 後）
@@ -216,7 +227,7 @@ AWS 版と同等。`url`, `section_title`, `query`, `max_rows=20` を受け、�
 構築の起点:
 - CLI: `mysql-documentation-mcp index --version 8.4 [--doc-set refman|relnotes|all] [--refresh]`
 - MCP サーバー起動時: `MYSQL_DOC_PRELOAD_VERSIONS=8.4,9.7` が指定されていればバックグラウンド構築
-- 検索時: 未構築なら Info アーカイブから同期構築し（数秒〜十数秒を想定）、`ctx.report_progress` で進捗を通知する
+- 検索時: 未構築なら Info アーカイブから同期構築する（ダウンロード込みで 2〜3 秒。進捗通知は構築が短いため行わない）
 
 更新: Info アーカイブの `Last-Modified`（例: 2026-09-25）と構築日時を `meta` に保存する。
 `MYSQL_DOC_INDEX_TTL_DAYS`（既定 7 日）を超えたら条件付き GET（`If-Modified-Since`）で確認し、更新があれば再構築する。
@@ -224,22 +235,23 @@ AWS 版と同等。`url`, `section_title`, `query`, `max_rows=20` を受け、�
 ### 4.4 インデックススキーマ（SQLite）
 
 ```sql
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);            -- doc_set, version, built_at, source 等
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);  -- schema, version, built_at, source_last_modified, pages, chunks
 CREATE TABLE pages (
-  id INTEGER PRIMARY KEY, url TEXT UNIQUE, title TEXT, section_number TEXT,
-  breadcrumb TEXT, parent_url TEXT, toc_order INTEGER
+  id INTEGER PRIMARY KEY, node TEXT UNIQUE, url TEXT, title TEXT,
+  section_number TEXT, breadcrumb TEXT, parent TEXT, toc_order INTEGER
 );
-CREATE TABLE anchors (                                            -- lookup_reference / read_sections 用
-  name TEXT, kind TEXT, anchor TEXT, page_id INTEGER REFERENCES pages(id)
-);
-CREATE INDEX anchors_name ON anchors(name);
-CREATE VIRTUAL TABLE chunks USING fts5(                           -- 見出し単位で分割した本文
-  page_id UNINDEXED, anchor UNINDEXED, title, headings, identifiers, body,
-  tokenize = "unicode61 tokenchars '_'"
+CREATE TABLE anchors (name TEXT, kind TEXT, anchor TEXT, page_id INTEGER);  -- lookup_reference (M4) 用
+CREATE VIRTUAL TABLE chunks USING fts5(
+  page_id UNINDEXED, anchor UNINDEXED, title, heading, identifiers, body,
+  tokenize = "porter unicode61 tokenchars '_'"
 );
 ```
 
-- 本文は見出し（h2/h3/h4）単位のチャンクに分割して登録する。検索結果はページ単位に集約し、最良チャンクの `snippet()` を抜粋に使う。
+- 本文はアンカー単位のチャンクに分割する。Info のタグテーブルのアンカー位置（バイトオフセット）でノードを切るので、
+  小見出し（`create-table-options`）もリファレンス項目（`sysvar_sql_mode`）もそれぞれ 1 チャンクになり、
+  検索結果の URL を `page.html#anchor` にできる。8.4 で 2,403 ページ・9,108 チャンク。
+- 1 バージョンのインデックスは約 32 MB（8.4）。構築は解析込みで約 1.5 秒。
+- `meta.schema` が変わったら既存インデックスは無効として作り直す。
 
 ## 5. コアモジュール設計
 
@@ -293,8 +305,10 @@ CREATE VIRTUAL TABLE chunks USING fts5(                           -- 見出し�
   `versions.json` に 1 日キャッシュ。取得失敗時はパッケージ同梱のフォールバック一覧を使う。
 - **LTS / Innovation の判定は機械的に取得できない**（M0 で確認）。`mysql-releases.html` は文章のみで表が無く、
   「暦年バージョンからは LTS か Innovation か判別できない」と明記されている。リリースノートのタイトルにも記載が無い。
-  そのため track はパッケージ同梱の対応表（8.4 = LTS, 9.7 = LTS, 26.7 = Innovation 等）で持ち、リリースごとに更新する。
-  対応表に無いバージョンは `unknown` とする。
+  そのため track は次の順で決める: パッケージ同梱の対応表（8.0 = GA, 8.4 = LTS, 9.7 = LTS, 26.7 = Innovation）→
+  最新 LTS の判定（下記）と一致すれば LTS → リリースノートが別の系列ディレクトリにある（9.6 のノートが `9.7/` にある）なら Innovation →
+  Early Access のリリースしか無ければ Early Access → それ以外は `unknown`。
+- サイトに接続できず一覧が不完全な場合は、同梱の一覧で応答するがディスクには保存せず、5 分後に再取得する。
 - **最新 LTS の判定**: バージョン無しの `/doc/refman/en/` が最新 LTS（現在 9.7）にリダイレクトされるので、その転送先を使う。
   取得できない場合は同梱の対応表で最も新しい LTS。
 - `"8.4.6"` のようなパッチ指定は refman では系列 `8.4` に丸め、relnotes ではパッチ版のページを指す。

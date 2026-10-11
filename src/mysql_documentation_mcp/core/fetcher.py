@@ -31,13 +31,17 @@ class FetchResult:
     requested_url: str
     final_url: str  # URL after redirects
     status_code: int  # 304 when the conditional request found no change
-    text: str
+    content: bytes
     etag: str | None
     last_modified: str | None
 
     @property
     def not_modified(self) -> bool:
         return self.status_code == 304
+
+    @property
+    def text(self) -> str:
+        return self.content.decode("utf-8", errors="replace")
 
 
 class _HostRateLimiter:
@@ -153,7 +157,7 @@ class Fetcher:
             requested_url=url,
             final_url=final_url,
             status_code=response.status_code,
-            text="" if response.status_code == 304 else response.text,
+            content=b"" if response.status_code == 304 else response.content,
             etag=response.headers.get("etag"),
             last_modified=response.headers.get("last-modified"),
         )

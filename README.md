@@ -7,7 +7,7 @@ MySQL 公式ドキュメント（[dev.mysql.com/doc](https://dev.mysql.com/doc/)
 対象は MySQL リファレンスマニュアルとサーバーのリリースノート（英語版）。
 クエリ作成、設定値の確認、バージョンアップ時の変更点調査などで、エージェントが公式ドキュメントに基づいた（出典付きの）回答を出せるようにする。
 
-> **ステータス: 開発中**。`read_documentation` / `read_sections` が使える（M1）。検索・リリースノート系ツールは未実装。PyPI 未公開。
+> **ステータス: 開発中**。検索（`search_documentation`）・読み取り（`read_documentation` / `read_sections`）・`list_versions` が使える（M2）。リリースノート系ツールは未実装。PyPI 未公開。
 
 ## 使い方
 
@@ -33,12 +33,25 @@ claude mcp add mysql-documentation -- uvx --from git+https://github.com/JunNishi
 
 使用例: 「MySQL 8.4 で `sql_mode` のデフォルト値は？公式ドキュメントを引用して」
 
+### 検索インデックス
+
+検索は、公式の Info 形式アーカイブ（1 バージョン約 4 MB）をダウンロードして手元に作る全文検索インデックス（SQLite FTS5、1 バージョン約 30 MB）で行う。
+初めてそのバージョンを検索したときに自動で作られる（2〜3 秒）。事前に作っておく場合:
+
+```bash
+uvx --from git+https://github.com/JunNishimura/mysql_documentation_mcp mysql-documentation-mcp index 8.4 9.7
+# 公開中の全バージョン: ... index all
+```
+
 ### 環境変数
 
 | 変数 | 説明 | 既定値 |
 |---|---|---|
-| `MYSQL_DOC_CACHE_DIR` | 取得したページのキャッシュ先 | OS 標準のキャッシュディレクトリ |
+| `MYSQL_DOC_DEFAULT_VERSION` | バージョン未指定時に使うマニュアル（`lts` / `latest` / `8.4` 等） | `lts`（最新 LTS） |
+| `MYSQL_DOC_CACHE_DIR` | ページキャッシュと検索インデックスの保存先 | OS 標準のキャッシュディレクトリ |
 | `MYSQL_DOC_CACHE_TTL_DAYS` | キャッシュの有効日数 | `7` |
+| `MYSQL_DOC_INDEX_TTL_DAYS` | 検索インデックスの更新確認の間隔（日） | `7` |
+| `MYSQL_DOC_PRELOAD_VERSIONS` | 起動時にインデックスを用意するバージョン（カンマ区切り） | なし |
 | `MYSQL_DOC_OFFLINE` | `1` でネットワークに出ず、キャッシュのみで応答 | `0` |
 | `MYSQL_DOC_USER_AGENT` | HTTP User-Agent の上書き（403 が返る環境向け） | [設計書 §5.1](docs/02_design.md) 参照 |
 | `FASTMCP_LOG_LEVEL` | ログレベル | `WARNING` |
@@ -64,11 +77,11 @@ uv run ruff check . && uv run ruff format --check . && uv run pyright
 
 | ツール | 概要 | 時期 |
 |---|---|---|
+| `search_documentation` | バージョン指定でリファレンスマニュアルを全文検索。該当する小見出し・変数などの #アンカー付き URL を返す | ✅ 実装済み |
 | `read_documentation` | ドキュメントページを Markdown で取得（ページネーション対応） | ✅ 実装済み |
 | `read_sections` | 巨大ページから指定見出し/アンカーのみ取得 | ✅ 実装済み |
-| `search_documentation` | バージョン指定でマニュアル/リリースノートを全文検索 | MVP |
-| `get_release_notes` | バージョン範囲の変更点をカテゴリ・キーワードで抽出 | MVP |
-| `list_versions` | 参照可能なバージョン一覧（LTS / Innovation） | MVP |
+| `list_versions` | 参照可能なバージョン一覧（LTS / Innovation、最新リリース） | ✅ 実装済み |
+| `get_release_notes` | バージョン範囲の変更点をカテゴリ・キーワードで抽出 | MVP（M3） |
 | `lookup_reference` | システム変数・オプション・関数等をピンポイント参照 | 拡張 |
 | `get_upgrade_guide` / `browse_toc` / `search_table` | 移行ガイド・目次ブラウズ・大きな表の検索 | 拡張 |
 

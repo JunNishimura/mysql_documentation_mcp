@@ -4,14 +4,13 @@ import pytest
 from mcp import Client
 
 from mysql_documentation_mcp.server import create_server
-from mysql_documentation_mcp.tools.read import DocumentService
 
 pytestmark = pytest.mark.live
 
 
 @pytest.fixture
 def client(settings):
-    return Client(create_server(DocumentService(settings)))
+    return Client(create_server(settings))
 
 
 async def test_select_page(client):
@@ -60,3 +59,17 @@ async def test_innovation_release_notes(client):
         )
     assert not result.is_error
     assert result.structured_content["sections"][0]["found"]
+
+
+async def test_search_and_versions(client):
+    async with client:
+        versions = await client.call_tool("list_versions", {})
+        search = await client.call_tool(
+            "search_documentation", {"query": "sql_mode", "version": "8.4", "limit": 3}
+        )
+    assert not versions.is_error
+    listed = {v["version"]: v for v in versions.structured_content["versions"]}
+    assert listed["8.4"]["track"] == "LTS" and listed["8.4"]["has_refman"]
+    assert not search.is_error
+    urls = [r["url"] for r in search.structured_content["results"]]
+    assert any("#sysvar_sql_mode" in u for u in urls), urls
