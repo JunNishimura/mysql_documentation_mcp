@@ -18,6 +18,7 @@ from mysql_documentation_mcp import __version__
 from mysql_documentation_mcp.config import Settings
 from mysql_documentation_mcp.core.fetcher import Fetcher
 from mysql_documentation_mcp.tools.read import DocumentationError, DocumentService, SectionsResult
+from mysql_documentation_mcp.tools.relnotes import ReleaseNotesService
 from mysql_documentation_mcp.tools.search import SearchResponse, SearchService, VersionsResponse
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,14 @@ MySQL Reference Manual and the MySQL Server release notes.
   "sysvar_sql_mode" on server-system-variables.html) instead of paging through everything.
 - For long pages, call read_documentation again with start_index to continue, and stop once
   you have found the information you need.
-- Release notes: https://dev.mysql.com/doc/relnotes/mysql/{series}/en/news-X-Y-Z.html.
+- Upgrades and version differences: get_release_notes lists the changes between two
+  releases (e.g. from 8.0.36 to 8.4.6), by default without bug fixes. Narrow it with
+  important_only, categories (e.g. ["deprecation-removal"]) or keyword. When the range
+  crosses release series, also read the "What Is New" and "Upgrading MySQL" pages of the
+  target version's manual.
+- To find in which release something changed, use search_documentation with
+  doc_set="relnotes".
+- Release notes pages: https://dev.mysql.com/doc/relnotes/mysql/{series}/en/news-X-Y-Z.html.
   Innovation releases are listed under the following LTS series (8.1-8.3 under 8.4,
   9.0-9.6 under 9.7).
 """.strip()
@@ -70,6 +78,7 @@ def create_server(settings: Settings | None = None, *, fetcher: Fetcher | None =
     fetcher = fetcher or Fetcher(settings)
     docs = DocumentService(settings, fetcher)
     search = SearchService(settings, fetcher)
+    relnotes = ReleaseNotesService(settings, docs, search.catalog)
 
     async def preload(version: str) -> None:
         try:
@@ -116,19 +125,116 @@ def create_server(settings: Settings | None = None, *, fetcher: Fetcher | None =
             ),
         ] = None,
         limit: Annotated[int, Field(description="Maximum number of results", ge=1, le=50)] = 10,
+        doc_set: Annotated[
+            Literal["refman", "relnotes"],
+            Field(
+                description='"refman" (default) searches the Reference Manual; "relnotes" '
+                "searches the release notes items of a series (to find in which release "
+                "something was added, changed, deprecated or fixed)."
+            ),
+        ] = "refman",
     ) -> SearchResponse:
-        """Search the MySQL Reference Manual for one version and return matching pages.
+        """Search the MySQL Reference Manual (or release notes) for one version.
 
-        Each result has the page title and section number, its URL (with #anchor when a
-        sub-section or reference entry such as a system variable matched), the parent sections
-        and a snippet. Then read the result with read_sections (using the #anchor) or
-        read_documentation.
+        Each Reference Manual result has the page title and section number, its URL (with
+        #anchor when a sub-section or reference entry such as a system variable matched), the
+        parent sections and a snippet. Then read the result with read_sections (using the
+        #anchor) or read_documentation.
 
-        The first search of a version downloads the official manual archive (about 4 MB) and
-        builds a local index, which takes a few seconds.
+        With doc_set="relnotes", each result is one release notes item: the release, its
+        category (e.g. "Deprecation and Removal Notes"), the URL of that category on the
+        release's page, and a snippet. version selects the release notes series; "8.4"
+        covers the MySQL 8.4 Release Notes, which also hold the 8.1-8.3 Innovation releases
+        ("8.2" searches only 8.2.x).
+
+        The first search of a manual version downloads the official manual archive (about
+        4 MB) and builds a local index, which takes a few seconds. The first release notes
+        search of a series reads every release page of the series (up to about 40 pages),
+        which can take up to a minute; later searches only fetch new releases.
         """
         try:
+            if doc_set == "relnotes":
+                return await relnotes.search(query, version, limit)
             return await search.search(query, version, limit)
+        except DocumentationError as e:
+            raise ToolError(str(e)) from e
+
+    @mcp.tool(annotations=_READ_ONLY)
+    async def get_release_notes(
+        from_version: Annotated[
+            str,
+            Field(
+                description='Current version, e.g. "8.0.36". Its own changes are not '
+                'included. A series such as "8.0" means its latest release.'
+            ),
+        ],
+        to_version: Annotated[
+            str,
+            Field(
+                description='Target version, e.g. "8.4.6" (included). A series such as "8.4" '
+                "means its latest release."
+            ),
+        ],
+        categories: Annotated[
+            list[str] | None,
+            Field(
+                description="Release note categories to include, by slug or title, e.g. "
+                '["deprecation-removal", "feature", "security", "innodb", "replication", '
+                '"optimizer", "bug"]. Default: all categories except "bug" (Bugs Fixed). '
+                'Use ["all"] to include everything.'
+            ),
+        ] = None,
+        important_only: Annotated[
+            bool,
+            Field(
+                description="Only items marked Important Change, Incompatible Change or "
+                "Important Note (the ones most likely to need action when upgrading)."
+            ),
+        ] = False,
+        keyword: Annotated[
+            str | None,
+            Field(
+                description="Only items containing this text (case-insensitive), e.g. "
+                '"mysql_native_password" or "replication".'
+            ),
+        ] = None,
+        max_length: Annotated[
+            int, Field(description="Maximum number of characters to return.", gt=0, lt=1_000_000)
+        ] = 10_000,
+        start_index: Annotated[
+            int,
+            Field(
+                description="Return output starting at this character index; use the value "
+                "given in a truncated response to continue reading.",
+                ge=0,
+            ),
+        ] = 0,
+    ) -> str:
+        """List the changes in MySQL Server releases between two versions, from the release notes.
+
+        Covers every release after from_version up to and including to_version, across
+        release series and including Innovation releases (8.0.36 -> 8.4.6 includes 8.0.37+,
+        8.1.0, 8.2.0, 8.3.0 and 8.4.0-8.4.6). The output is Markdown grouped by release
+        and category ("Deprecation and Removal Notes", "Functionality Added or Changed",
+        ...), with the source URL of each category for citation. Item prefixes such as
+        "Important Change:" or "InnoDB:" are kept.
+
+        Bug fixes are excluded by default because they are numerous; narrow the output with
+        important_only, categories or keyword. At most 50 releases can be read per call, and
+        the first call for a range fetches each release page (about 0.5 s per release).
+        Long output is truncated; call again with the same arguments and the start_index
+        given at the end of the response.
+        """
+        try:
+            return await relnotes.get_release_notes(
+                from_version,
+                to_version,
+                categories,
+                important_only,
+                keyword,
+                max_length,
+                start_index,
+            )
         except DocumentationError as e:
             raise ToolError(str(e)) from e
 

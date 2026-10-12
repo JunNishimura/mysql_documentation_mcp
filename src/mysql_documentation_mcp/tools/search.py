@@ -32,6 +32,9 @@ class SearchResult(BaseModel):
         "pass the URL's #anchor to read_sections to read just that part"
     )
     snippet: str = Field(description="Excerpt with matched terms in **bold**")
+    release: str | None = Field(
+        default=None, description='Release the item belongs to (release notes only, e.g. "8.4.0")'
+    )
 
 
 class SearchResponse(BaseModel):

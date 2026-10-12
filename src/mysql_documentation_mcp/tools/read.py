@@ -71,7 +71,8 @@ class DocumentService:
         self._recent: OrderedDict[str, _LoadedPage] = OrderedDict()
         self._recent_max = 8
 
-    async def _load(self, raw_url: str) -> _LoadedPage:
+    async def load_html(self, raw_url: str) -> tuple[DocUrl, CachedPage, str | None]:
+        """The page's HTML from the cache or the site, and a note if a stale copy is used."""
         try:
             doc = parse_doc_url(raw_url)
         except ValueError as e:
@@ -102,7 +103,10 @@ class DocumentService:
                     fetched_at=time.time(),
                 )
                 self._cache.put(cached)
+        return doc, cached, note
 
+    async def _load(self, raw_url: str) -> _LoadedPage:
+        doc, cached, note = await self.load_html(raw_url)
         key = f"{doc.url}@{cached.fetched_at}"
         loaded = self._recent.get(key)
         if loaded is None:

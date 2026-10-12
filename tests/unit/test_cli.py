@@ -3,6 +3,7 @@ import respx
 
 from mysql_documentation_mcp.cli import main
 from tests.info_builder import SAMPLE_NODES, make_info, zip_info
+from tests.relnotes_builder import mock_relnotes_site
 from tests.unit.test_versions import mock_site
 
 
@@ -30,3 +31,15 @@ def test_version_flag(capsys):
     with pytest.raises(SystemExit):
         main(["--version"])
     assert capsys.readouterr().out.startswith("mysql-documentation-mcp ")
+
+
+@respx.mock
+def test_index_release_notes(tmp_path, capsys):
+    mock_relnotes_site()
+    with pytest.raises(SystemExit) as exit_info:
+        main(["index", "--doc-set", "relnotes", "all"])
+    assert exit_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "MySQL 8.0 release notes: 2 releases, 4 items indexed" in out
+    assert "MySQL 8.4 release notes: 3 releases, 7 items indexed" in out
+    assert (tmp_path / "index" / "relnotes-8.4-en.sqlite").exists()

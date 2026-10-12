@@ -42,13 +42,23 @@ M1 で分かったこと（02_design.md に反映済み）:
 - [x] 検索品質の評価セット（§3）で確認: **Recall@3 = 29/30 (0.97)**（8.4、`tests/live/test_search_quality.py`）。
   唯一の外れは "replication GTID"（概要ページ replication-gtids ではなく、その下位ページが上位に来る）
 
-### M3: リリースノート（MVP-3）
+### M3: リリースノート（MVP-3） ✅ 完了
 
-- [ ] `core/relnotes_parser.py`（正規化・カテゴリ分類）
-- [ ] ツール: `get_release_notes`（系列またぎ対応）
-- [ ] `search_documentation(doc_set="relnotes")`
+- [x] `core/relnotes_parser.py`（カテゴリ分割・項目の正規化・接頭辞 flags）
+- [x] ツール: `get_release_notes`（系列またぎ・Innovation リリース込み。カテゴリ / important_only / keyword で絞り込み、ページネーション）
+- [x] `search_documentation(doc_set="relnotes")`（`core/relnotes_index.py`。系列ディレクトリ毎の FTS5、新リリース分だけ追加取得）
+- [x] CLI `mysql-documentation-mcp index --doc-set relnotes|all`
+- [x] 検索品質: リリースノートの評価 8 件で **Recall@3 = 7/8 (0.88)**（`tests/live/test_search_quality.py`）。
+  外れは "VECTOR data type"（9.0.0 の導入項目より、カテゴリ見出し「Vector Data Type」に入っている後続リリースの小さな修正が上位に来る）
 
-→ ここまでで v0.1.0 として PyPI 公開
+M3 で分かったこと（02_design.md に反映済み）:
+- リリースノートの一括アーカイブは PDF のみ → 系列内の各ページを取得して索引を作る（8.0 は 41 ページ・初回約 20 秒）。新リリース分だけ追加取得する
+- 項目に個別のアンカーは無い → 引用はカテゴリのアンカー（`#mysqld-8-4-0-deprecation-removal`）
+- 項目内に入れ子リストがある（`li.listitem` をそのまま数えると項目数を誤る）
+- `26.10/` の目次は 26.7.x も自ディレクトリ配下として載せる → 同じリリースが複数ディレクトリにある場合は自系列のディレクトリを採用
+- 変更一覧の無いリリースがある（8.4.12 は docker イメージのセキュリティ更新のみ）→ 注記本文を出力に含める
+
+→ ここまでで v0.1.0 として PyPI 公開（公開作業は未実施）
 
 ### M4: 拡張
 
@@ -62,7 +72,7 @@ M1 で分かったこと（02_design.md に反映済み）:
 
 | 種別 | 内容 |
 |---|---|
-| ユニット | バージョンのパース/比較（`8.0.36` < `8.3.0` < `8.4` < `9.7.1` < `26.7` < `26.10.0`）、URL 許可リスト、ページネーション境界、セクション抽出、リリースノート分類 |
+| ユニット | バージョンのパース/比較（`8.0.36` < `8.3.0` < `8.4` < `9.7.1` < `26.7` < `26.10.0`）、URL 許可リスト、ページネーション境界、セクション抽出、リリースノート分類（自作の最小リリースノートサイト `tests/relnotes_builder.py`） |
 | HTTP モック | `respx` で fetcher のリトライ・リダイレクト拒否・キャッシュ再検証を検証 |
 | フィクスチャ | 構造を再現した**自作の最小 HTML**を使う（公式ページのコピーはライセンス上置かない） |
 | ライブ結合 | `pytest --run-live` のみで実行。実サイトの構造変化を検知する（CI では週 1 回のスケジュール実行） |

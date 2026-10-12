@@ -24,7 +24,7 @@
                                               │   ├ cache.py      ページキャッシュ(ディスク)      │
                                               │   ├ converter.py  HTML→Markdown / セクション抽出 │
                                               │   ├ indexer.py    FTS5 インデックス構築          │
-                                              │   └ relnotes.py   リリースノート解析             │
+                                              │   └ relnotes_*.py リリースノート解析・索引        │
                                               └───────────────┬──────────────────────────────┘
                                                               │ HTTPS (許可ドメインのみ)
                                               ┌───────────────▼──────────────┐
@@ -51,9 +51,9 @@ search_documentation(
     query: str,                 # 検索語（英語推奨。日本語はエージェント側で英訳するよう instructions で誘導）
     version: str | None = None, # 例: "8.4", "8.4.6", "9.7", "26.7", "lts", "latest"
     limit: int = 10,            # 1..50
+    doc_set: "refman" | "relnotes" = "refman",
 ) -> SearchResponse             # {query, version, manual, note, results: [SearchResult]}
 ```
-（`doc_set="relnotes"` によるリリースノート検索は M3 で追加する。）
 
 `SearchResult`（M2 で実装した形）:
 ```json
@@ -75,6 +75,13 @@ search_documentation(
   `option_` の `_` 表記の別名はサーバー（`mysqld`）のオプションだけに付ける（`mysqlslap --sql-mode` が `sql_mode` 変数より上位に来るのを防ぐ）。
 - インデックス未構築のバージョンが指定された場合は §4.3 の方法でその場で構築する（ダウンロードと構築で 2〜3 秒）。
 - スニペットは Info 由来のため、構文中のプレースホルダは大文字になる（`TBL_NAME`）。正確な表記は `read_documentation` / `read_sections` で確認する。
+
+`doc_set="relnotes"`（M3）: リリースノートの項目（§5.5）単位で検索する。「ある変更がどのリリースで入ったか」を調べる用途。
+- `version` は系列ディレクトリを選ぶ。`"8.4"` は MySQL 8.4 Release Notes 全体（8.1〜8.3 の Innovation を含む）、
+  `"8.2"` は同じ 8.4 ディレクトリを 8.2.x に絞って検索する。省略時は既定バージョン（最新 LTS）の系列。
+- 結果は 1 項目 1 件。`release`（例 `8.4.0`）、`matched_section` にカテゴリ見出し、URL はそのリリースのページ＋カテゴリのアンカー。
+- 列の重みは `flags (4) > category_title (2) > text (1)`。Bugs Fixed の項目は件数が多く「いつ変わったか」の答えになりにくいため、スコアを 0.7 倍して下げる。
+- インデックスの作り方は §4.3。
 
 ### 3.2 `read_documentation`（MVP）
 
@@ -112,10 +119,10 @@ read_sections(
 
 ```python
 get_release_notes(
-    from_version: str,                  # 例: "8.0.36"（この版は含まない）
-    to_version: str,                    # 例: "8.4.6"（この版を含む）
+    from_version: str,                  # 例: "8.0.36"（この版は含まない）。"8.0" のような系列指定はその系列の最新リリース
+    to_version: str,                    # 例: "8.4.6"（この版を含む）。"8.4" はその系列の最新リリース
     categories: list[str] | None = None,# 既定: "bug" 以外の全カテゴリ（例: ["deprecation-removal", "feature", "security"]）
-    important_only: bool = False,       # True なら "Important Change:" / "Incompatible Change:" の項目のみ
+    important_only: bool = False,       # True なら "Important Change" / "Incompatible Change" / "Important Note" の項目のみ
     keyword: str | None = None,         # 例: "replication", "mysql_native_password"
     max_length: int = 10000,
     start_index: int = 0,
@@ -134,12 +141,18 @@ get_release_notes(
   | `bug` | Bugs Fixed（量が多いため既定では除外） |
   | `innodb`, `optimizer`, `replication`, `performance-schema`, `configuration`, `authentication`, `json` 等 | 機能領域別の Notes |
 
-- 項目冒頭の太字接頭辞（`Important Change:`, `Incompatible Change:`, `InnoDB:`, `Replication:` 等）は `flags` として抽出し、
-  `important_only` と `keyword` の絞り込みに使う。
-
-- 系列をまたぐ場合（8.0 → 8.4 など）は、各系列の該当範囲を連結し、
-  **系列の境界では `get_upgrade_guide` を併用するよう出力内でヒントを出す**（大規模変更は新系列の GA 版ノートより「What Is New」ページのほうが網羅的なため）。
-- 出力は `## 8.4.1 (2024-07-01)` → `### Deprecation and Removal Notes` → 箇条書き、の Markdown。各項目に元 URL＋アンカーを付ける。
+- 項目冒頭の太字接頭辞（`Important Change:`, `Incompatible Change:`, `InnoDB:`, `Important Change; Group Replication:` 等）は `flags` として抽出し、
+  `important_only` の絞り込みに使う。`keyword` は項目本文（接頭辞を含む）の大小無視の部分一致。
+- `categories` は slug（`deprecation-removal`）でも見出し（`Deprecation and Removal Notes`, `Bugs Fixed`）でもよい。`["all"]` で全カテゴリ。
+  範囲内に無いカテゴリを指定した場合は、範囲内に存在するカテゴリの一覧を出力に含める。
+- 系列をまたぐ場合（8.0 → 8.4 など）は各系列の該当範囲を連結し、**出力内で移行先の「What Is New in MySQL X」（`mysql-nutshell.html`）と
+  「Upgrading MySQL」（`upgrading.html`）を併読するようヒントを出す**（大規模変更は新系列の GA 版ノートより「What Is New」ページのほうが網羅的なため。
+  `get_upgrade_guide` は M4）。
+- 出力は見出し（範囲・リリース数・絞り込み条件・該当件数・該当なしのリリース）→ `## MySQL 8.4.1 (2024-07-01)` → `### Deprecation and Removal Notes` → 箇条書き、の Markdown。
+  項目には個別のアンカーが無いため、カテゴリ見出しごとに `Source: news-X-Y-Z.html#mysqld-X-Y-Z-{slug}` を付ける。項目内の入れ子リストは項目の一部として字下げして出す。
+- 変更一覧の無いリリース（例: 8.4.12 は docker イメージのセキュリティ更新のみで、ページは注記だけ）は「Release without a list of changes」として注記の本文とともに出す。
+- 1 回の呼び出しで読むリリースは最大 50（1 リリース 1 リクエスト）。超える場合は範囲を分けるよう案内するエラーにする。
+  取得できなかったリリースは出力に注記して残りを返す。ページネーションは `read_documentation` と同じ `start_index` / `max_length`。
 
 ### 3.5 `list_versions`（MVP）
 
@@ -222,10 +235,14 @@ AWS 版と同等。`url`, `section_title`, `query`, `max_rows=20` を受け、�
 - Info が存在しないバージョンのみ、目次 HTML をたどるクロールにフォールバックする
   （同時接続 2・間隔 ≥ 0.5 秒。`robots.txt` は `/doc/` を禁止していない）。
 
-**relnotes: 系列目次ページから各 `news-X-Y-Z.html` を取得して構築する**（1 系列あたり数十ページ。§5.5）。
+**relnotes: 系列目次ページから各 `news-X-Y-Z.html` を取得して構築する**（§5.5）。
+リリースノートには PDF 以外の一括アーカイブが無い（M3 で確認。系列目次からのダウンロードリンクは `mysql-8.4-relnotes-en.pdf` のみ）。
+ページ数は 8.0 で 41、8.4 で 16、9.7 で 12（M3 時点）。初回は 1 ページ約 0.5 秒（レート制限）で、8.0 は約 20 秒かかる。
+公開済みのリリースノートはほぼ変わらないため、TTL による作り直しはせず、**系列目次のリリース一覧（バージョン一覧キャッシュは 1 日）に新しいリリースが現れたときだけ、
+そのリリースのページを取得して追加する**（既存リリースの項目は旧インデックスからコピー）。
 
 構築の起点:
-- CLI: `mysql-documentation-mcp index --version 8.4 [--doc-set refman|relnotes|all] [--refresh]`
+- CLI: `mysql-documentation-mcp index [8.4 ...|all] [--doc-set refman|relnotes|all] [--force]`
 - MCP サーバー起動時: `MYSQL_DOC_PRELOAD_VERSIONS=8.4,9.7` が指定されていればバックグラウンド構築
 - 検索時: 未構築なら Info アーカイブから同期構築する（ダウンロード込みで 2〜3 秒。進捗通知は構築が短いため行わない）
 
@@ -252,6 +269,17 @@ CREATE VIRTUAL TABLE chunks USING fts5(
   検索結果の URL を `page.html#anchor` にできる。8.4 で 2,403 ページ・9,108 チャンク。
 - 1 バージョンのインデックスは約 32 MB（8.4）。構築は解析込みで約 1.5 秒。
 - `meta.schema` が変わったら既存インデックスは無効として作り直す。
+
+リリースノート（`index/relnotes-{series}-en.sqlite`、系列ディレクトリ毎）:
+
+```sql
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);  -- schema, directory, built_at, releases (JSON), items
+CREATE VIRTUAL TABLE items USING fts5(
+  version UNINDEXED, series UNINDEXED, date UNINDEXED, category UNINDEXED, url UNINDEXED,
+  category_title, flags, text,
+  tokenize = "porter unicode61 tokenchars '_'"
+);
+```
 
 ## 5. コアモジュール設計
 
@@ -317,6 +345,7 @@ CREATE VIRTUAL TABLE chunks USING fts5(
 
 - 系列目次（`/doc/relnotes/mysql/{series}/en/`）から `news-X-Y-Z.html` の一覧とリリース日を取得。
   リンクテキストが `Changes in MySQL 8.4.12 (2026-08-18)` の形式なので、バージョンと日付をここから取る。
+  括弧内には状態が付くことがある（`2018-04-19, General Availability`、`2026-09-18 (Early Access Release)`）。
 - **Innovation リリースのノートは、次の LTS 系列のディレクトリにある**（M0 で確認）:
 
   | 系列ディレクトリ | 含まれるリリース |
@@ -328,10 +357,16 @@ CREATE VIRTUAL TABLE chunks USING fts5(
   | `26.10/` | 26.10.0（Early Access） |
 
   そのため「バージョン → ページ URL」はパターンから推測せず、全系列の目次を読んで作った対応表で引く（旧系列 URL の `8.3/` 等はリダイレクトされる）。
-- 各ページは `div.simplesect`（アンカー `mysqld-{X}-{Y}-{Z}-{slug}`）ごとにカテゴリ分割し、その中の `li.listitem` を 1 項目として
-  `{version, date, category, text, anchor, flags}` に正規化する（ページ先頭の目次の `li` は除外）。
-- `flags` には項目冒頭の `<strong>` 接頭辞（`Important Change:`, `InnoDB:`, `Replication:` 等）を入れる。
-- 正規化済み項目は `index/relnotes-{series}.sqlite` に保存し、`search_documentation(doc_set="relnotes")` の対象にもする。
+- 同じリリースが複数の目次に載ることがある（M3 で確認: `26.10/` の目次は 26.7.0 / 26.7.1 も `26.10/` 配下のページとして載せている）。
+  その場合は**そのリリースの系列と同名のディレクトリ**のものを採用する（26.7.x → `26.7/`）。
+- 各ページは `div.simplesect`（アンカー `mysqld-{X}-{Y}-{Z}-{slug}`）ごとにカテゴリ分割し、その中の**最上位の** `li.listitem` を 1 項目として
+  `{version, date, category, text, url, flags}` に正規化する。ページ先頭の目次の `li` と、項目内の入れ子リスト（8.4.0 の Deprecation and Removal Notes は 43 個の `li` のうち 17 項目）は項目として数えない。
+  項目自体にはアンカーが無いので、引用 URL はカテゴリのアンカーにする。
+- `flags` には項目先頭の段落の、`:` で終わる太字接頭辞を `;` で分割して入れる（`Important Change; Group Replication:` → 2 つ）。
+  項目の途中の太字小見出し（`<b>SQL statements removed. </b>`）は対象外。
+- カテゴリの無いページ（docker イメージのみの更新など）は本文を `summary` として持つ。
+- 正規化済み項目は `index/relnotes-{series}-en.sqlite` に保存し、`search_documentation(doc_set="relnotes")` の対象にする（§3.1, §4.3）。
+- 解析済みページはメモリ上に直近 64 ページ保持する（同じ範囲のページ送りで解析をやり直さない）。項目の Markdown 変換は出力する項目だけ行う。
 
 ## 6. サーバー instructions（エージェント向けガイド・骨子）
 
@@ -341,7 +376,9 @@ AWS 版にならい、FastMCP の `instructions` に以下を記載する:
 - 利用者の MySQL バージョンが分かっている場合は必ず `version` を指定すること（不明なら確認するか LTS を仮定し、その旨を明示）
 - 検索語は英語の技術用語で（例: 「デッドロック 調査」→ `"deadlock detection innodb"`）
 - 巨大ページは `read_documentation` で目次を見てから `read_sections` を使うこと
-- バージョンアップ調査は `get_release_notes` → 系列境界では `get_upgrade_guide` の順で行うこと
+- バージョンアップ調査は `get_release_notes`（既定で Bugs Fixed を除く。`important_only` / `categories` / `keyword` で絞る）→
+  系列をまたぐ場合は移行先マニュアルの「What Is New」「Upgrading MySQL」も読むこと（M4 で `get_upgrade_guide` に置き換え）
+- 「いつ変わったか」は `search_documentation(doc_set="relnotes")` で調べること
 - バージョン間比較は、URL の `/refman/{version}/` 部分を差し替えて同一ページを読み比べること
 
 ## 7. 設定（環境変数）
@@ -402,17 +439,18 @@ mysql_documentation_mcp/
 │   ├── cli.py                  # `index` などのサブコマンド
 │   ├── config.py               # 環境変数
 │   ├── tools/                  # 各ツールの実装と入出力モデル（pydantic）
-│   │   ├── search.py
-│   │   ├── read.py             # read_documentation / read_sections / search_table
-│   │   ├── relnotes.py         # get_release_notes / get_upgrade_guide
-│   │   └── versions.py         # list_versions
+│   │   ├── search.py           # search_documentation / list_versions
+│   │   ├── read.py             # read_documentation / read_sections（search_table は M4）
+│   │   └── relnotes.py         # get_release_notes / リリースノート検索（get_upgrade_guide は M4）
 │   └── core/
 │       ├── urls.py             # URL の許可リスト・正規化・バージョンすり替わり検知
 │       ├── fetcher.py
 │       ├── cache.py
 │       ├── converter.py
-│       ├── indexer.py
+│       ├── info.py             # Info 形式の解析
+│       ├── indexer.py          # refman の FTS5 インデックス
 │       ├── relnotes_parser.py
+│       ├── relnotes_index.py   # リリースノートの FTS5 インデックス
 │       └── versions.py
 └── tests/
     ├── fixtures/               # テスト用の最小 HTML（公式ページの丸ごとコピーは置かない）
