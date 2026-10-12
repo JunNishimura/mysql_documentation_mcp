@@ -149,3 +149,12 @@ async def test_read_sections_requires_names(client):
     async with client:
         result = await client.call_tool("read_sections", {"url": URL, "sections": []})
     assert result.is_error
+
+
+async def test_overlong_arguments_are_rejected(client):
+    async with client:
+        result = await client.call_tool(
+            "read_documentation", {"url": "https://dev.mysql.com/doc/refman/8.4/en/" + "a" * 600}
+        )
+        sections = await client.call_tool("read_sections", {"url": URL, "sections": ["x" * 300]})
+    assert result.is_error and sections.is_error

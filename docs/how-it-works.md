@@ -139,6 +139,48 @@ pages of the newest manual), so the server builds a local full-text index per ve
   errors are retried up to 3 times with backoff. `HTTPS_PROXY` and similar variables are
   honored.
 
+## Security
+
+The server only reads public documentation, but its output goes straight into an AI agent,
+and it makes network requests on the user's machine. These measures limit what can go wrong:
+
+**Untrusted content (prompt injection)**
+- Text that is not visible documentation is removed before conversion: `script`, `style`,
+  `noscript`, `template`, `iframe`, `object`, `embed`, `svg`, form elements, HTML comments, and
+  elements hidden with `hidden`, `aria-hidden="true"`, `display: none` or `visibility: hidden`.
+  Hidden text therefore cannot carry instructions to the agent.
+- Links are kept only with `http`, `https` or `mailto` URLs; `javascript:`, `data:` and other
+  schemes are reduced to their text.
+- Images are never output as Markdown images, which many clients load automatically (a
+  common way to leak data through an attacker-chosen URL). Images on dev.mysql.com become
+  plain links with their alt text; images elsewhere are replaced by their alt text.
+- The server instructions tell the agent to treat returned text as reference material and
+  never to follow instructions that appear in it.
+- Content is passed on without summarizing or rewriting; the server never interprets or
+  executes it.
+
+**Requests (SSRF and unwanted downloads)**
+- Only allowlisted URLs are requested (see Network behavior), and every redirect target is
+  checked against the same list. On downloads.mysql.com only `mysql-X.Y.info.zip` is allowed.
+  Tool arguments cannot name a host, port, credentials or query string.
+- Response bodies are streamed and refused beyond 32 MB, and the Info archive is refused if
+  it would decompress to more than 200 MB (zip bomb protection).
+- Tool arguments have length limits (URLs 500 characters, versions 20, section names 200,
+  keywords 200).
+
+**Load on dev.mysql.com**
+- Requests to a host are spaced at least 0.5 seconds apart across all tool calls of a server
+  process, retries are limited (3, with backoff, `Retry-After` capped at 30 seconds), and
+  pages are cached for 7 days.
+- One `get_release_notes` call reads at most 50 release pages; a release notes index is
+  built once per series and later only fetches new releases; the version list is read once
+  a day.
+
+**Local data**
+- Only the cache directory is written. File names are SHA-1 hashes of URLs or validated
+  version numbers. All SQL uses parameters, and search terms are quoted before they reach
+  FTS5, so queries cannot change the SQL or the FTS5 expression.
+
 ## Cache
 
 The cache directory is the OS cache directory (`~/.cache/mysql-documentation-mcp/` on Linux)

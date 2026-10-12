@@ -70,3 +70,10 @@ def test_read_info_archive():
         read_info_archive(b"not a zip")
     with pytest.raises(InfoFormatError):
         read_info_archive(zip_info(data, name="readme.txt"))
+
+
+def test_oversized_archive_is_refused():
+    data = zip_info(make_info(SAMPLE_NODES))
+    assert read_info_archive(data, max_size=1_000_000)
+    with pytest.raises(InfoFormatError, match="larger than 100 bytes"):
+        read_info_archive(data, max_size=100)

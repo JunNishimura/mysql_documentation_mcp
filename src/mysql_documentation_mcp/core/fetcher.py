@@ -117,18 +117,21 @@ class Fetcher:
         while True:
             await self._limiter(url).wait()
             try:
-                response = await client.get(url, headers=headers)
+                async with client.stream("GET", url, headers=headers) as response:
+                    if (
+                        response.status_code in _RETRY_STATUS
+                        and attempt < self._settings.max_retries
+                    ):
+                        delay = self._backoff(attempt, response.headers.get("retry-after"))
+                    else:
+                        body = await self._read_body(url, response)
+                        return self._to_result(url, response, body)
             except (httpx.TimeoutException, httpx.NetworkError) as e:
                 if attempt >= self._settings.max_retries:
                     raise FetchError(f"Failed to fetch {url}: {e!r}") from e
                 delay = self._backoff(attempt, None)
             except httpx.HTTPError as e:
                 raise FetchError(f"Failed to fetch {url}: {e!r}") from e
-            else:
-                if response.status_code in _RETRY_STATUS and attempt < self._settings.max_retries:
-                    delay = self._backoff(attempt, response.headers.get("retry-after"))
-                else:
-                    return self._to_result(url, response)
             attempt += 1
             logger.info("Retrying %s in %.1fs (attempt %d)", url, delay, attempt)
             await asyncio.sleep(delay)
@@ -136,13 +139,28 @@ class Fetcher:
     def _backoff(self, attempt: int, retry_after: str | None) -> float:
         if retry_after:
             try:
-                return min(float(retry_after), _MAX_RETRY_AFTER_SECONDS)
+                return min(max(float(retry_after), 0.0), _MAX_RETRY_AFTER_SECONDS)
             except ValueError:
                 pass
         return self._settings.retry_backoff_base * (2**attempt)
 
+    async def _read_body(self, url: str, response: httpx.Response) -> bytes:
+        """The response body, refusing anything larger than ``max_response_bytes``."""
+        if response.status_code == 304 or response.status_code >= 400:
+            return b""
+        limit = self._settings.max_response_bytes
+        declared = response.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > limit:
+            raise FetchError(f"Refusing to download {url}: {declared} bytes exceeds {limit}")
+        body = bytearray()
+        async for chunk in response.aiter_bytes():
+            body += chunk
+            if len(body) > limit:
+                raise FetchError(f"Refusing to download {url}: response exceeds {limit} bytes")
+        return bytes(body)
+
     @staticmethod
-    def _to_result(url: str, response: httpx.Response) -> FetchResult:
+    def _to_result(url: str, response: httpx.Response, body: bytes) -> FetchResult:
         final_url = str(response.url)
         if response.status_code == 404:
             raise FetchError(f"Page not found (404): {final_url}")
@@ -157,7 +175,7 @@ class Fetcher:
             requested_url=url,
             final_url=final_url,
             status_code=response.status_code,
-            content=b"" if response.status_code == 304 else response.content,
+            content=body,
             etag=response.headers.get("etag"),
             last_modified=response.headers.get("last-modified"),
         )

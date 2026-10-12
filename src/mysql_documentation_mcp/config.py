@@ -55,6 +55,10 @@ class Settings:
     request_timeout: float = 30.0
     max_retries: int = 3
     retry_backoff_base: float = 1.0
+    # Largest response body accepted. The biggest real downloads are a few MB (a manual
+    # page is at most ~1 MB, an Info archive ~5 MB); anything far larger is not
+    # documentation and is not read into memory.
+    max_response_bytes: int = 32 * 1024 * 1024
 
     @classmethod
     def from_env(cls) -> Settings:

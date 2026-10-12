@@ -97,3 +97,32 @@ async def test_conditional_request(fetcher):
     result = await fetcher.fetch(zip_url, last_modified="Fri, 25 Sep 2026 16:25:27 GMT")
     assert result.not_modified
     assert route.calls.last.request.headers["if-modified-since"] == "Fri, 25 Sep 2026 16:25:27 GMT"
+
+
+@respx.mock
+async def test_refuses_redirect_to_other_downloads(fetcher):
+    respx.get(URL).respond(
+        302, headers={"Location": "https://downloads.mysql.com/docs/mysql-8.4-relnotes-en.pdf"}
+    )
+    with pytest.raises(FetchError, match="Refusing to follow redirect"):
+        await fetcher.fetch(URL)
+
+
+@respx.mock
+async def test_refuses_oversized_response(settings):
+    fetcher = Fetcher(dataclasses.replace(settings, max_response_bytes=1000))
+    try:
+        respx.get(URL).respond(200, content=b"x" * 5000)  # declared Content-Length
+        with pytest.raises(FetchError, match="exceeds 1000"):
+            await fetcher.fetch(URL)
+
+        async def chunks():
+            for _ in range(10):
+                yield b"x" * 500
+
+        # No Content-Length: the body is cut off while streaming.
+        respx.get(URL).mock(return_value=httpx.Response(200, content=chunks()))
+        with pytest.raises(FetchError, match="exceeds 1000 bytes"):
+            await fetcher.fetch(URL)
+    finally:
+        await fetcher.aclose()
