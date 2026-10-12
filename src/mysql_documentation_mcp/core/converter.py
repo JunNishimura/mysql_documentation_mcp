@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import markdownify
 import soupsieve
@@ -41,8 +41,28 @@ _EMPTY_TABLE_HEADER_RE = re.compile(r"^([ \t]*)\|\s+\|\s+\|\n[ \t]*\| --- \| ---
 _SECTION_NUMBER_RE = re.compile(r"^(?:[A-Z]|\d+)(?:\.\d+)*\s+")
 
 
+# Elements whose text is not visible documentation (or not text at all). Their content is
+# never passed to the agent, so hidden text cannot carry instructions to it.
+_NON_CONTENT = (
+    "script, style, a.indexterm, noscript, template, iframe, frame, object, embed, svg, "
+    "form, input, button, select, textarea, [hidden], [aria-hidden=true]"
+)
+_HIDDEN_STYLE_RE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.I)
+# Links in the output may only use these schemes (no javascript:, data:, file:, ...).
+_LINK_SCHEMES = frozenset({"http", "https", "mailto"})
+
+
 class UnreadablePageError(ValueError):
     pass
+
+
+def strip_non_content(body: Tag) -> None:
+    """Remove hidden and non-text elements (scripts, forms, ``display:none`` ...)."""
+    for tag in body.select(_NON_CONTENT):
+        tag.decompose()
+    for tag in body.select("[style]"):
+        if _HIDDEN_STYLE_RE.search(str(tag.get("style", ""))):
+            tag.decompose()
 
 
 @dataclass(frozen=True)
@@ -105,8 +125,7 @@ def parse_page(html: str, url: str) -> ParsedPage:
             manual = parts[0]
             title = parts[-1] if len(parts) > 1 else ""
 
-    for tag in body.select("script, style, a.indexterm"):
-        tag.decompose()
+    strip_non_content(body)
 
     headings = []
     for i, h in enumerate(body.find_all(_HEADING_TAGS)):
@@ -161,13 +180,28 @@ def _prepare(fragment: Tag, base_url: str) -> Tag:
 
     for a in root.find_all("a"):
         href = a.get("href")
-        if href and not str(href).startswith(("mailto:", "javascript:")):
-            a["href"] = urljoin(base_url, str(href))
-            a.attrs.pop("title", None)
-        elif not href and not a.get_text(strip=True):
+        if href:
+            target = urljoin(base_url, str(href).strip())
+            if urlsplit(target).scheme.lower() in _LINK_SCHEMES:
+                a.attrs = {"href": target}
+            else:
+                a.unwrap()  # keep the text, drop a javascript:/data: link
+        elif not a.get_text(strip=True):
             a.decompose()  # bare <a name="..."> anchors
-    for img in root.find_all("img", src=True):
-        img["src"] = urljoin(base_url, str(img["src"]))
+        else:
+            a.unwrap()
+    for img in root.find_all("img"):
+        # Markdown images are loaded automatically by many clients, so they become plain
+        # links (documentation images only) and are never fetched without a click.
+        alt = _clean_text(str(img.get("alt") or "")) or "image"
+        src = urljoin(base_url, str(img.get("src") or "").strip())
+        parts = urlsplit(src)
+        if parts.scheme == "https" and parts.hostname == "dev.mysql.com":
+            link = frag.new_tag("a", href=src)
+            link.string = f"Image: {alt}"
+            img.replace_with(link)
+        else:
+            img.replace_with(f"(image omitted: {alt})")
 
     for kind in _ADMONITIONS:
         for box in root.select(f"div.{kind}"):

@@ -86,7 +86,9 @@ Tip: tell the agent which MySQL version you use. Without one, the latest LTS man
 | `get_release_notes` | Changes in releases after `from_version` up to `to_version`, grouped by release and category. Bug fixes are excluded unless requested; `important_only`, `categories` and `keyword` narrow the output. |
 | `list_versions` | Published versions with their track (LTS / Innovation / ...), latest release and documentation URLs. |
 
-All tools are read-only and only access the official documentation URLs.
+All tools are read-only and only access the official documentation URLs. Hidden page
+content, script links and auto-loading images are removed before text reaches the agent;
+see [Security](docs/how-it-works.md#security).
 
 ## Search indexes and first use
 

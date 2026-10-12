@@ -13,7 +13,11 @@ _DOC_URL_RE = re.compile(
     r"(?P<doc_set>refman|relnotes/mysql)/(?P<version>[0-9]+\.[0-9]+)/en/"
     r"(?P<page>[A-Za-z0-9._-]*)$"
 )
-_DOWNLOADS_URL_RE = re.compile(r"^https://downloads\.mysql\.com/docs/[A-Za-z0-9._-]+$")
+# Only the manual's Info archive is downloaded; other files there (PDFs, man pages) are
+# never needed, so neither requests nor redirects may reach them.
+_DOWNLOADS_URL_RE = re.compile(
+    r"^https://downloads\.mysql\.com/docs/mysql-[0-9]+\.[0-9]+\.info\.zip$"
+)
 
 DOC_INDEX_URL = "https://dev.mysql.com/doc/"
 # Version-less alias that the site redirects to the latest LTS manual.

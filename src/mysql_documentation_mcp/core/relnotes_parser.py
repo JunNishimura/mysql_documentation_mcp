@@ -20,7 +20,11 @@ from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup, Tag
 
-from mysql_documentation_mcp.core.converter import UnreadablePageError, fragment_to_markdown
+from mysql_documentation_mcp.core.converter import (
+    UnreadablePageError,
+    fragment_to_markdown,
+    strip_non_content,
+)
 
 _TITLE_RE = re.compile(r"Changes in MySQL (?P<version>\d+\.\d+\.\d+)\s*(?:\((?P<info>.*)\))?")
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -112,8 +116,7 @@ def parse_release_page(html: str, url: str) -> ReleasePage:
     body = soup.select_one("#docs-body")
     if body is None or not body.get_text(strip=True):
         raise UnreadablePageError("the page has no documentation content (#docs-body)")
-    for tag in body.select("script, style, a.indexterm"):
-        tag.decompose()
+    strip_non_content(body)
 
     heading = body.find(["h1", "h2"])
     title = _clean_text(heading.get_text(" ")) if heading else ""

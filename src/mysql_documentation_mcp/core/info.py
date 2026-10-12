@@ -37,6 +37,10 @@ _UNDERLINE_RE = re.compile(r"^[*=\-.]{3,}$")
 _SECTION_NUMBER_RE = re.compile(r"^((?:[A-Z]|\d+)(?:\.\d+)*)\s+")
 
 
+# The 8.4 manual is about 20 MB uncompressed.
+MAX_INFO_SIZE = 200 * 1024 * 1024
+
+
 class InfoFormatError(ValueError):
     pass
 
@@ -64,16 +68,26 @@ class Node:
         return "" if self.name == "Top" else f"{self.name}.html"
 
 
-def read_info_archive(data: bytes) -> bytes:
-    """Return the ``.info`` file inside ``mysql-{version}.info.zip``."""
+def read_info_archive(data: bytes, max_size: int = MAX_INFO_SIZE) -> bytes:
+    """Return the ``.info`` file inside ``mysql-{version}.info.zip``.
+
+    The uncompressed file is about 20 MB; anything larger than ``max_size`` is refused
+    without being decompressed in full (protection against a "zip bomb").
+    """
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            names = [n for n in archive.namelist() if n.endswith(".info")]
-            if not names:
+            infos = [i for i in archive.infolist() if i.filename.endswith(".info")]
+            if not infos:
                 raise InfoFormatError("the archive contains no .info file")
-            return archive.read(names[0])
-    except zipfile.BadZipFile as e:
-        raise InfoFormatError(f"not a zip archive: {e}") from e
+            if infos[0].file_size > max_size:
+                raise InfoFormatError(f"the .info file is larger than {max_size} bytes")
+            with archive.open(infos[0]) as member:
+                content = member.read(max_size + 1)
+            if len(content) > max_size:
+                raise InfoFormatError(f"the .info file is larger than {max_size} bytes")
+            return content
+    except (zipfile.BadZipFile, zipfile.LargeZipFile) as e:
+        raise InfoFormatError(f"not a usable zip archive: {e}") from e
 
 
 def _clean(text: str) -> str:

@@ -69,6 +69,9 @@ def test_is_allowed_url():
     assert is_allowed_url("https://downloads.mysql.com/docs/mysql-8.4.info.zip")
     assert not is_allowed_url("https://example.com/")
     assert not is_allowed_url("https://downloads.mysql.com/archives/")
+    # Other downloads (PDFs, large archives) are never fetched, even via a redirect.
+    assert not is_allowed_url("https://downloads.mysql.com/docs/mysql-8.4-relnotes-en.pdf")
+    assert not is_allowed_url("https://downloads.mysql.com/docs/refman-8.4-en.html-chapter.zip")
 
 
 def test_retired_manual_redirect_is_an_error():

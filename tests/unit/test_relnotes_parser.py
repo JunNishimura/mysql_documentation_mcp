@@ -2,7 +2,7 @@ import pytest
 
 from mysql_documentation_mcp.core.converter import UnreadablePageError
 from mysql_documentation_mcp.core.relnotes_parser import parse_release_page
-from tests.relnotes_builder import SITE, page_url, release_page
+from tests.relnotes_builder import SITE, item, page_url, release_page
 
 
 def parse(directory: str, index: int):
@@ -74,3 +74,19 @@ def test_release_without_changes_list():
     page = parse_release_page(html, page_url("8.4", "8.4.12"))
     assert page.version == "8.4.12" and not page.items
     assert page.summary == "This release updates the container image only."
+
+
+def test_hidden_item_text_is_dropped():
+    html = release_page(
+        "8.4.0",
+        "2024-04-30",
+        [
+            (
+                "feature",
+                "Functionality Added or Changed",
+                [item("Shown.<span hidden>Secret.</span>")],
+            )
+        ],
+    )
+    page = parse_release_page(html, page_url("8.4", "8.4.0"))
+    assert page.items[0].text == "Shown." and "Secret" not in page.items[0].markdown()
