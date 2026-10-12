@@ -1,4 +1,4 @@
-"""HTTP access to dev.mysql.com (docs/02_design.md §5.1)."""
+"""HTTP access to dev.mysql.com (see docs/how-it-works.md)."""
 
 from __future__ import annotations
 

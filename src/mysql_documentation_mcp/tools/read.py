@@ -1,4 +1,4 @@
-"""read_documentation / read_sections (docs/02_design.md §3.2, §3.3)."""
+"""read_documentation / read_sections (see docs/how-it-works.md)."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""SQLite FTS5 search index of the reference manual (docs/02_design.md §4.3, §4.4)."""
+"""SQLite FTS5 search index of the reference manual (see docs/how-it-works.md)."""
 
 from __future__ import annotations
 

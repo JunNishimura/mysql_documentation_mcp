@@ -1,4 +1,4 @@
-"""get_release_notes and release-notes search (docs/02_design.md §3.4, §5.5)."""
+"""get_release_notes and release-notes search (see docs/how-it-works.md)."""
 
 from __future__ import annotations
 

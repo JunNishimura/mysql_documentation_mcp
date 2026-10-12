@@ -1,4 +1,4 @@
-"""MySQL versions: parsing, comparison and discovery (docs/02_design.md §5.4)."""
+"""MySQL versions: parsing, comparison and discovery (see docs/how-it-works.md)."""
 
 from __future__ import annotations
 

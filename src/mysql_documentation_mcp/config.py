@@ -1,4 +1,4 @@
-"""Settings read from environment variables (see docs/02_design.md §7)."""
+"""Settings read from environment variables (see README.md, Configuration)."""
 
 from __future__ import annotations
 

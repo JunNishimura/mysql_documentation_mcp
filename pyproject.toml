@@ -1,7 +1,7 @@
 [project]
 name = "mysql-documentation-mcp"
 version = "0.1.0"
-description = "MCP server that lets AI agents search and read the official MySQL documentation"
+description = "Unofficial MCP server that lets AI agents search and read the official MySQL documentation"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
