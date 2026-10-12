@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from urllib.parse import urldefrag, urlsplit
 
 # Only the English reference manual and server release notes are in scope
-# (docs/01_requirements.md §6).
+# (see docs/how-it-works.md).
 _DOC_URL_RE = re.compile(
     r"^https://dev\.mysql\.com/doc/"
     r"(?P<doc_set>refman|relnotes/mysql)/(?P<version>[0-9]+\.[0-9]+)/en/"

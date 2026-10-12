@@ -1,4 +1,4 @@
-"""On-disk cache of fetched documentation pages (docs/02_design.md §5.2).
+"""On-disk cache of fetched documentation pages (see docs/how-it-works.md).
 
 The raw HTML is stored (gzip) rather than converted Markdown, so both
 ``read_documentation`` and ``read_sections`` can use it and converter changes

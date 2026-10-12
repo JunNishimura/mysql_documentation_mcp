@@ -1,4 +1,4 @@
-"""Parser for the MySQL manual in GNU Info format (docs/02_design.md §4.3).
+"""Parser for the MySQL manual in GNU Info format (see docs/how-it-works.md).
 
 ``https://downloads.mysql.com/docs/mysql-{version}.info.zip`` holds the whole reference
 manual in one file (~20 MB):

@@ -1,6 +1,6 @@
-"""HTML -> Markdown conversion and section extraction (docs/02_design.md §5.3).
+"""HTML -> Markdown conversion and section extraction (see docs/how-it-works.md).
 
-Structure of dev.mysql.com pages (confirmed in M0):
+Structure of dev.mysql.com pages:
 
 * The content is in ``#docs-body``; breadcrumbs, version switcher and footer are outside it.
 * Section headings carry their anchor: ``<h4 class="title"><a name="create-table-name">``.
@@ -24,7 +24,7 @@ from bs4.element import NavigableString
 
 _HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 _ADMONITIONS = ("note", "important", "warning", "caution", "tip")
-# Anchor prefixes of named reference entries (see docs/02_design.md §3.6).
+# Anchor prefixes of named reference entries.
 REFERENCE_ANCHOR_PREFIXES = (
     "sysvar_",
     "statvar_",

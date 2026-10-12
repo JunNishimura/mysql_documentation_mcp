@@ -1,4 +1,4 @@
-"""search_documentation / list_versions (docs/02_design.md §3.1, §3.5)."""
+"""search_documentation / list_versions (see docs/how-it-works.md)."""
 
 from __future__ import annotations
 

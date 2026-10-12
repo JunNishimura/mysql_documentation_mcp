@@ -1,101 +1,158 @@
 # MySQL Documentation MCP Server
 
-MySQL 公式ドキュメント（[dev.mysql.com/doc](https://dev.mysql.com/doc/)）を AI エージェントが検索・参照できるようにする
-[Model Context Protocol](https://modelcontextprotocol.io/) サーバー。
-[AWS Documentation MCP Server](https://awslabs.github.io/mcp/servers/aws-documentation-mcp-server) の MySQL 版を目指す。
+A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that lets AI agents
+search and read the official MySQL documentation at [dev.mysql.com/doc](https://dev.mysql.com/doc/):
+the English **MySQL Reference Manual** and the **MySQL Server release notes**.
 
-対象は MySQL リファレンスマニュアルとサーバーのリリースノート（英語版）。
-クエリ作成、設定値の確認、バージョンアップ時の変更点調査などで、エージェントが公式ドキュメントに基づいた（出典付きの）回答を出せるようにする。
+It is modeled on the [AWS Documentation MCP Server](https://github.com/awslabs/mcp/tree/main/src/aws-documentation-mcp-server).
+Agents can answer questions about SQL syntax, configuration, defaults and upgrades from the
+documentation of a specific MySQL version, and cite the exact page and anchor.
 
-> **ステータス: MVP 完成（M3）**。検索（`search_documentation`）・読み取り（`read_documentation` / `read_sections`）・`list_versions`・リリースノート（`get_release_notes`、リリースノート検索）が使える。PyPI 未公開。
+> [!IMPORTANT]
+> **This is an unofficial project.** It is not affiliated with, endorsed by or supported by
+> Oracle Corporation or the MySQL project. MySQL is a trademark of Oracle and/or its
+> affiliates. The documentation itself is © Oracle. This project does not bundle it; it
+> fetches pages from dev.mysql.com when you use it and keeps them in a local cache.
 
-## 使い方
+## Features
 
-Python 3.10 以上と [uv](https://docs.astral.sh/uv/) が必要。PyPI 公開前は GitHub から直接起動する。
+- **Version-aware search** of the Reference Manual (8.0, 8.4, 9.7, 26.7, ...). Results link to
+  the matching sub-section or reference entry, e.g. `server-system-variables.html#sysvar_sql_mode`.
+- **Markdown pages** with code blocks, property tables of system variables and options, and
+  absolute links. Large pages can be read one section or one reference entry at a time.
+- **Release notes between two versions**, across release series and Innovation releases
+  (8.0.36 → 8.4.6 includes 8.1.0-8.3.0), filtered by category, importance or keyword.
+- **"When did this change?" search** over release notes items.
+- **No wrong-version answers**: retired manuals (such as 5.7), which the site silently
+  redirects to another version, are reported as unavailable instead.
+
+## Requirements
+
+- Python 3.10 or later and [uv](https://docs.astral.sh/uv/) (for `uvx`)
+- Internet access to `dev.mysql.com` and `downloads.mysql.com`
+
+The package is not published on PyPI; run it directly from this repository.
+
+## Installation
+
+### Claude Code
+
+```bash
+claude mcp add mysql-documentation -- uvx --from git+https://github.com/JunNishimura/mysql_documentation_mcp mysql-documentation-mcp
+```
+
+### Claude Desktop and other MCP clients
+
+Add the server to the client's MCP configuration (for Claude Desktop, `claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "mysql-documentation": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/JunNishimura/mysql_documentation_mcp", "mysql-documentation-mcp"],
-      "env": { "FASTMCP_LOG_LEVEL": "ERROR" }
+      "args": [
+        "--from",
+        "git+https://github.com/JunNishimura/mysql_documentation_mcp",
+        "mysql-documentation-mcp"
+      ],
+      "env": {
+        "MYSQL_DOC_DEFAULT_VERSION": "8.4",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
     }
   }
 }
 ```
 
-Claude Code の場合:
+To pin a version of this server, append a tag or commit to the URL, e.g.
+`git+https://github.com/JunNishimura/mysql_documentation_mcp@<commit>`.
 
-```bash
-claude mcp add mysql-documentation -- uvx --from git+https://github.com/JunNishimura/mysql_documentation_mcp mysql-documentation-mcp
-```
+## Example prompts
 
-使用例:
-- 「MySQL 8.4 で `sql_mode` のデフォルト値は？公式ドキュメントを引用して」
-- 「8.0.36 から 8.4.6 にアップグレードするときの注意点を、リリースノートから洗い出して」
-- 「`mysql_native_password` はどのバージョンで非推奨・無効化された？」
+- "In MySQL 8.4, what is the default value of `sql_mode`? Cite the documentation."
+- "Show the syntax of `ALTER TABLE ... ALGORITHM=INSTANT` in MySQL 8.0 and which operations it supports."
+- "We are upgrading from 8.0.36 to 8.4.6. List the incompatible and important changes from the release notes."
+- "In which release was `mysql_native_password` deprecated, and when was it disabled by default?"
 
-### 検索インデックス
+Tip: tell the agent which MySQL version you use. Without one, the latest LTS manual is used.
 
-検索は、公式の Info 形式アーカイブ（1 バージョン約 4 MB）をダウンロードして手元に作る全文検索インデックス（SQLite FTS5、1 バージョン約 30 MB）で行う。
-初めてそのバージョンを検索したときに自動で作られる（2〜3 秒）。事前に作っておく場合:
+## Tools
+
+| Tool | Description |
+|---|---|
+| `search_documentation` | Full-text search of the Reference Manual of one version (`query`, `version`, `limit`). With `doc_set="relnotes"`, searches release notes items of a series instead. |
+| `read_documentation` | Fetches a documentation page as Markdown, starting with a table of contents. Long pages are paginated with `start_index` / `max_length`. |
+| `read_sections` | Returns only the requested sections of a page, by heading title or anchor (e.g. `sysvar_max_connections`). |
+| `get_release_notes` | Changes in releases after `from_version` up to `to_version`, grouped by release and category. Bug fixes are excluded unless requested; `important_only`, `categories` and `keyword` narrow the output. |
+| `list_versions` | Published versions with their track (LTS / Innovation / ...), latest release and documentation URLs. |
+
+All tools are read-only and only access the official documentation URLs.
+
+## Search indexes and first use
+
+Search runs on local SQLite full-text indexes, built automatically the first time a version is
+searched:
+
+| Index | Built from | First build | Size |
+|---|---|---|---|
+| Reference Manual, per version | the official Info archive (about 4 MB download) | a few seconds | about 33 MB |
+| Release notes, per series | every release page of the series | up to about 20 s (8.0) | under 5 MB |
+
+Later release notes updates fetch only new releases. To build indexes in advance:
 
 ```bash
 uvx --from git+https://github.com/JunNishimura/mysql_documentation_mcp mysql-documentation-mcp index 8.4 9.7
-# 公開中の全バージョン: ... index all
-```
-
-リリースノートの検索（`search_documentation` の `doc_set="relnotes"`）は、系列（8.0 / 8.4 / 9.7 …）ごとに各リリースのページを取得して索引を作る
-（リリースノートには一括アーカイブが無いため。初回は 8.0 で約 20 秒、以降は新しいリリースの分だけ取得）。事前に作っておく場合:
-
-```bash
 uvx --from git+https://github.com/JunNishimura/mysql_documentation_mcp mysql-documentation-mcp index --doc-set relnotes 8.0 8.4
+# every published version and series:
+uvx --from git+https://github.com/JunNishimura/mysql_documentation_mcp mysql-documentation-mcp index --doc-set all all
 ```
 
-### 環境変数
+Indexes and fetched pages are stored in the OS cache directory (`~/.cache/mysql-documentation-mcp/`
+on Linux). They can be deleted at any time and are rebuilt when needed.
 
-| 変数 | 説明 | 既定値 |
+## Configuration
+
+| Environment variable | Description | Default |
 |---|---|---|
-| `MYSQL_DOC_DEFAULT_VERSION` | バージョン未指定時に使うマニュアル（`lts` / `latest` / `8.4` 等） | `lts`（最新 LTS） |
-| `MYSQL_DOC_CACHE_DIR` | ページキャッシュと検索インデックスの保存先 | OS 標準のキャッシュディレクトリ |
-| `MYSQL_DOC_CACHE_TTL_DAYS` | キャッシュの有効日数 | `7` |
-| `MYSQL_DOC_INDEX_TTL_DAYS` | 検索インデックスの更新確認の間隔（日） | `7` |
-| `MYSQL_DOC_PRELOAD_VERSIONS` | 起動時にインデックスを用意するバージョン（カンマ区切り） | なし |
-| `MYSQL_DOC_OFFLINE` | `1` でネットワークに出ず、キャッシュのみで応答 | `0` |
-| `MYSQL_DOC_USER_AGENT` | HTTP User-Agent の上書き（403 が返る環境向け） | [設計書 §5.1](docs/02_design.md) 参照 |
-| `FASTMCP_LOG_LEVEL` | ログレベル | `WARNING` |
+| `MYSQL_DOC_DEFAULT_VERSION` | Version used when a tool gets none: `lts`, `latest` or a version such as `8.4` | `lts` (latest LTS) |
+| `MYSQL_DOC_CACHE_DIR` | Directory for the page cache and search indexes | OS cache directory |
+| `MYSQL_DOC_CACHE_TTL_DAYS` | Days before a cached page is fetched again | `7` |
+| `MYSQL_DOC_INDEX_TTL_DAYS` | Days between checks for a new Reference Manual archive | `7` |
+| `MYSQL_DOC_PRELOAD_VERSIONS` | Comma-separated versions whose index is prepared at startup | none |
+| `MYSQL_DOC_OFFLINE` | `1` to use only the cache and existing indexes, without network access | `0` |
+| `MYSQL_DOC_USER_AGENT` | HTTP User-Agent override (see [Network behavior](docs/how-it-works.md#network-behavior)) | `Python-urllib/<ver> mysql-documentation-mcp/<ver> (+<repo URL>)` |
+| `FASTMCP_LOG_LEVEL` | Log level | `WARNING` |
 
-## 開発
+## Limitations
+
+- English Reference Manual and MySQL Server release notes only. MySQL Shell, Router,
+  Connectors, NDB Cluster, the Error Message Reference and translated manuals are not covered.
+- Only versions that dev.mysql.com still publishes are available. The 5.7 manual and the
+  Innovation manuals (8.1-8.3, 9.0-9.6) have been retired; their release notes remain available.
+- Search snippets come from the Info edition of the manual, where placeholders in syntax are
+  upper case (`TBL_NAME`). The page text returned by `read_documentation` is exact.
+- The server depends on the structure of dev.mysql.com pages. A weekly CI job runs tests
+  against the live site to detect changes.
+
+## How it works
+
+See [docs/how-it-works.md](docs/how-it-works.md) for the architecture, how versions and
+redirects are handled, how the search indexes are built, and the site behaviors the server
+works around.
+
+## Development
 
 ```bash
 uv sync
-uv run pytest                 # ユニットテスト（HTTP はモック）
-uv run pytest --run-live      # dev.mysql.com に実際にアクセスするテスト
+uv run pytest                  # unit tests (HTTP is mocked)
+uv run pytest --run-live       # tests against dev.mysql.com, including search quality
 uv run ruff check . && uv run ruff format --check . && uv run pyright
 ```
 
-## ドキュメント
+Issues and pull requests are welcome. Test fixtures are synthetic; please do not add copies of
+documentation pages to the repository.
 
-| ドキュメント | 内容 |
-|---|---|
-| [docs/01_requirements.md](docs/01_requirements.md) | 目的・ユースケース・機能/非機能要件・スコープ |
-| [docs/02_design.md](docs/02_design.md) | アーキテクチャ・ツール仕様・検索方式・モジュール設計・設定 |
-| [docs/03_implementation_plan.md](docs/03_implementation_plan.md) | マイルストーン・テスト方針・評価・決定事項 |
+## License
 
-## ツール
-
-| ツール | 概要 | 時期 |
-|---|---|---|
-| `search_documentation` | バージョン指定でリファレンスマニュアルを全文検索。該当する小見出し・変数などの #アンカー付き URL を返す。`doc_set="relnotes"` でリリースノートの項目を検索（どのリリースで変わったか） | ✅ 実装済み |
-| `read_documentation` | ドキュメントページを Markdown で取得（ページネーション対応） | ✅ 実装済み |
-| `read_sections` | 巨大ページから指定見出し/アンカーのみ取得 | ✅ 実装済み |
-| `list_versions` | 参照可能なバージョン一覧（LTS / Innovation、最新リリース） | ✅ 実装済み |
-| `get_release_notes` | バージョン範囲（系列またぎ・Innovation 込み）の変更点を、カテゴリ・重要度・キーワードで絞って Markdown で返す | ✅ 実装済み |
-| `lookup_reference` | システム変数・オプション・関数等をピンポイント参照 | 拡張 |
-| `get_upgrade_guide` / `browse_toc` / `search_table` | 移行ガイド・目次ブラウズ・大きな表の検索 | 拡張 |
-
-## ライセンス
-
-本リポジトリのコードは [Apache License 2.0](LICENSE) で提供する。
-MySQL ドキュメント本体は Oracle の著作物であり、本リポジトリおよび配布パッケージには含めない（利用者の環境で取得・キャッシュする）。
+The code in this repository is licensed under the [Apache License 2.0](LICENSE).
+The MySQL documentation is © Oracle and is not part of this repository or license.

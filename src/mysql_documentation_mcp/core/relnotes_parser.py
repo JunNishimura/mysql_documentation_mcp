@@ -1,6 +1,6 @@
-"""Parsing of MySQL Server release notes pages (docs/02_design.md §5.5).
+"""Parsing of MySQL Server release notes pages (see docs/how-it-works.md).
 
-Structure of ``news-X-Y-Z.html`` (confirmed in M0/M3):
+Structure of ``news-X-Y-Z.html``:
 
 * The page title is ``Changes in MySQL 8.4.6 (2025-07-22)``; the parentheses may also
   carry a status (``2018-04-19, General Availability``, ``2026-09-18 (Early Access

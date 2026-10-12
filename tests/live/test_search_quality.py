@@ -1,4 +1,4 @@
-"""Search quality on the real manual (docs/03_implementation_plan.md §3).
+"""Search quality on the real manual (see docs/how-it-works.md).
 
 Each query lists acceptable pages; a query passes when one of them is in the top 3.
 Run with ``pytest --run-live -s`` to see the misses.
